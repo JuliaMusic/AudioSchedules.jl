@@ -114,9 +114,18 @@ struct Envelope{Levels,Durations,Shapes}
     end
 end
 
+struct Instrument{Iterator,State}
+    iterator::Iterator
+    state_box::RefValue{State}
+    is_on_box::RefValue{Bool}
+end
+
+const Triggers = OrderedDict{Float64,Vector{Tuple{Symbol,Bool}}}
+const Orchestra = Dict{Symbol,Instrument}
+
 struct AudioScheduler{Sink}
-    orchestra::Dict{Symbol,Any}
-    triggers::OrderedDict{Float64,Vector{FunctionWrapper{Nothing,Tuple{}}}}
+    orchestra::Orchestra
+    triggers::Triggers
     sink::Sink
 end
 
@@ -158,11 +167,7 @@ julia> play(scheduler) # well, still not great
 julia> close(stream)
 ```
 """
-AudioScheduler(sink) = AudioScheduler(
-    Dict{Symbol,Any}(),
-    OrderedDict{Float64,Vector{FunctionWrapper{Nothing,Tuple{}}}}(),
-    sink,
-)
+AudioScheduler(sink) = AudioScheduler(Orchestra(), Triggers(), sink)
 
 """
     schedule!(scheduler::AudioScheduler, iterator, start_time, duration)
@@ -172,39 +177,25 @@ Schedule an `iterator` to be added to the `scheduler`, starting at `start_time` 
 [`AudioScheduler`](@ref). Note: the scheduler will discard the first sample in the iterator
 during scheduling.
 """
-function schedule!(
-    scheduler::AudioScheduler,
-    iterator,
-    start_time,
-    duration
-)
+function schedule!(scheduler::AudioScheduler, iterator, start_time, duration)
     orchestra = scheduler.orchestra
     triggers = scheduler.triggers
     label = gensym("instrument")
     stop_time = start_time + duration
     # note: will discard first sample in the iterator
     _, state = iterate(iterator)
-    on_trigger = let orchestra = orchestra, label = label, iterator = iterator, state_box = Ref(state)
-        function ()
-            orchestra[label] = (iterator, state_box)
-            return nothing
-        end
-    end
+    orchestra[label] = Instrument(iterator, Ref(state), Ref(false))
+    on_trigger = (label, true)
     if haskey(triggers, start_time)
         push!(triggers[start_time], on_trigger)
     else
-        triggers[start_time] = FunctionWrapper{Nothing,Tuple{}}[on_trigger]
+        triggers[start_time] = [on_trigger]
     end
-    off_trigger = let orchestra = orchestra, label = label
-        function ()
-            delete!(orchestra, label)
-            return nothing
-        end
-    end
+    off_trigger = (label, false)
     if haskey(triggers, stop_time)
         push!(triggers[stop_time], off_trigger)
     else
-        triggers[stop_time] = FunctionWrapper{Nothing,Tuple{}}[off_trigger]
+        triggers[stop_time] = [off_trigger]
     end
     nothing
 end
@@ -240,14 +231,21 @@ show(io::IO, scheduler::AudioScheduler) =
     nothing
 end
 
-@noinline function _play(sink, start_time, end_time, iterator_state_boxes)
-    iterators = map(first, iterator_state_boxes)
-    state_boxes = map(last, iterator_state_boxes)
-    iterator = Generator(broadcast_reduce(+), zip(iterators...))
+@noinline function _play(sink, start_time, end_time, instruments)
+    state_boxes = map(instrument -> instrument.state_box, instruments)
     state_box = Ref(map(getindex, state_boxes))
+    iterator = Generator(
+        broadcast_reduce(+),
+        zip(map(instrument -> instrument.iterator, instruments)...),
+    )
     write(
         sink,
-        IteratorSource(iterator, state_box, length(first(iterator)), samplerate(sink)),
+        IteratorSource(
+            iterator ,
+            state_box,
+            length(first(iterator)),
+            samplerate(sink),
+        ),
         (end_time - start_time)s,
     )
     map(setindex!, state_boxes, state_box[])
@@ -265,10 +263,15 @@ function play(scheduler::AudioScheduler)
     start_time = 0
     orchestra = scheduler.orchestra
     triggers = scheduler.triggers
-    for (end_time, triggers) in pairs(triggers)
-        _play(scheduler.sink, start_time, end_time, (values(orchestra)...,))
-        for trigger in triggers
-            trigger()
+    for (end_time, trigger_list) in pairs(triggers)
+        _play(
+            scheduler.sink,
+            start_time,
+            end_time,
+            ((instrument for instrument in values(orchestra) if instrument.is_on_box[])...,),
+        )
+        for (label, is_on) in trigger_list
+            orchestra[label].is_on_box[] = is_on
         end
         start_time = end_time
     end
