@@ -3,11 +3,10 @@ module AudioSchedulers
 import Base: iterate, eltype, IteratorSize, read!, show, setindex!
 using Base: Generator, IsInfinite, RefValue
 using Base.Iterators: repeated
-import SampledSignals: samplerate, nchannels, unsafe_read!
-using SampledSignals: SampleSource, s, Hz
 using DataStructures: OrderedDict
 using PortAudio: PortAudioStream
-using FunctionWrappers: FunctionWrapper
+import SampledSignals: samplerate, nchannels, unsafe_read!
+using SampledSignals: SampleSource, s, Hz
 
 const TAU = 2 * pi
 
@@ -120,20 +119,19 @@ struct Instrument{Iterator,State}
     is_on_box::RefValue{Bool}
 end
 
-const Triggers = OrderedDict{Float64,Vector{Tuple{Symbol,Bool}}}
-const Orchestra = Dict{Symbol,Instrument}
-
-struct AudioScheduler{Sink}
-    orchestra::Orchestra
-    triggers::Triggers
+struct AudioScheduler{Sink, Time}
+    orchestra::Dict{Symbol,Instrument}
+    triggers::OrderedDict{Time,Vector{Tuple{Symbol,Bool}}}
     sink::Sink
+    start_time::Time
 end
 
 """
-    AudioScheduler(sink)
+    AudioScheduler(sink, start_time = 0.0s)
 
 Create a `AudioScheduler` to schedule changes to sink. Add an iterator to the schedule with
-[`schedule!`](@ref). Then, you can play it with [`play`](@ref).
+[`schedule!`](@ref). Then, you can play it with [`play`](@ref). You can schedule based on
+times in the same unit of `start_time`, or samples by setting `start_time` to an `Int`.
 
 ```jldoctest
 julia> using AudioScheduler
@@ -142,20 +140,20 @@ julia> using PortAudio: PortAudioStream
 
 julia> using Base: Generator
 
-julia> const SAMPLE_RATE = 44100
+julia> const SAMPLE_RATE = 44100 * Hz
 
-julia> stream = PortAudioStream(samplerate = SAMPLE_RATE)
+julia> stream = PortAudioStream(samplerate = SAMPLE_RATE / Hz)
 
 julia> scheduler = AudioScheduler(stream.sink)
 AudioScheduler with triggers at Float64[] seconds
 
-julia> envelope = Envelope((0.0, 0.25, 0.25, 0.0), (0.5, 0.5, 0.5), (line, line, line));
+julia> envelope = Envelope((0.0, 0.25, 0.25, 0.0), (0.5s, 0.5s, 0.5s), (line, line, line));
 
-julia> schedule!(scheduler, Generator(sin, cycles(SAMPLE_RATE, 440)), 0.0, envelope)
+julia> schedule!(scheduler, Generator(sin, cycles(SAMPLE_RATE, 440 * Hz)), 0s, envelope)
 
-julia> schedule!(scheduler, Generator(sin, cycles(SAMPLE_RATE, 440)), 1.5, envelope)
+julia> schedule!(scheduler, Generator(sin, cycles(SAMPLE_RATE, 440 * Hz)), 1.5s, envelope)
 
-julia> schedule!(scheduler, Generator(sin, cycles(SAMPLE_RATE, 550)), 1.5, envelope)
+julia> schedule!(scheduler, Generator(sin, cycles(SAMPLE_RATE, 550 * Hz)), 1.5s, envelope)
 
 julia> scheduler
 AudioScheduler with triggers at [0.0, 0.5, 1.0, 1.5, 2.0, 2.5, 3.0] seconds
@@ -167,7 +165,8 @@ julia> play(scheduler) # well, still not great
 julia> close(stream)
 ```
 """
-AudioScheduler(sink) = AudioScheduler(Orchestra(), Triggers(), sink)
+AudioScheduler(sink::Sink, start_time::Time = 0.0s) where {Sink, Time} =
+    AudioScheduler{Sink, Time}(Dict{Symbol,Instrument}(), OrderedDict{Time,Vector{Tuple{Symbol,Bool}}}(), sink, start_time)
 
 """
     schedule!(scheduler::AudioScheduler, iterator, start_time, duration)
@@ -201,7 +200,7 @@ function schedule!(scheduler::AudioScheduler, iterator, start_time, duration)
 end
 
 function schedule!(scheduler::AudioScheduler, iterator, start_time, envelope::Envelope)
-    the_samplerate = samplerate(scheduler.sink)
+    the_samplerate = samplerate(scheduler.sink) * Hz
     durations = envelope.durations
     levels = envelope.levels
     shapes = envelope.shapes
@@ -227,7 +226,7 @@ show(io::IO, scheduler::AudioScheduler) =
     print(io, "AudioScheduler with triggers at $(keys(scheduler.triggers)) seconds")
 
 @noinline function _play(sink, start_time, end_time, ::Tuple{})
-    write(sink, IteratorSource(sink, repeated(0.0)), (end_time - start_time)s)
+    write(sink, IteratorSource(sink, repeated(0.0)), (end_time - start_time))
     nothing
 end
 
@@ -241,12 +240,12 @@ end
     write(
         sink,
         IteratorSource(
-            iterator ,
+            iterator,
             state_box,
             length(first(iterator)),
-            samplerate(sink),
+            samplerate(sink)
         ),
-        (end_time - start_time)s,
+        (end_time - start_time),
     )
     map(setindex!, state_boxes, state_box[])
     nothing
@@ -260,7 +259,7 @@ compilation time; successive plays should sound better. See the example for
 [`AudioScheduler`](@ref).
 """
 function play(scheduler::AudioScheduler)
-    start_time = 0
+    start_time = scheduler.start_time
     orchestra = scheduler.orchestra
     triggers = scheduler.triggers
     for (end_time, trigger_list) in pairs(triggers)
