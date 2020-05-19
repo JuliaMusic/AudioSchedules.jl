@@ -67,7 +67,7 @@ julia> stream = PortAudioStream(samplerate = SAMPLE_RATE);
 
 julia> sink = stream.sink;
 
-julia> iterator = Generator(sin, cycles(SAMPLE_RATE, 440))
+julia> iterator = Generator(sin, cycles(SAMPLE_RATE, 440));
 
 julia> write(sink, IteratorSource(sink, iterator), SAMPLE_RATE)
 
@@ -193,7 +193,7 @@ function schedule!(
     if haskey(triggers, start_time)
         push!(triggers[start_time], on_trigger)
     else
-        triggers[start_time] = [on_trigger]
+        triggers[start_time] = FunctionWrapper{Nothing,Tuple{}}[on_trigger]
     end
     off_trigger = let orchestra = orchestra, label = label
         function ()
@@ -204,7 +204,7 @@ function schedule!(
     if haskey(triggers, stop_time)
         push!(triggers[stop_time], off_trigger)
     else
-        triggers[stop_time] = [off_trigger]
+        triggers[stop_time] = FunctionWrapper{Nothing,Tuple{}}[off_trigger]
     end
     nothing
 end
@@ -257,7 +257,7 @@ end
 """
     play(scheduler::AudioScheduler)
 
-Play a [`AudioScheduler`](@ref). Note the first time a scheduer is played will be laggy due to
+Play a [`AudioScheduler`](@ref). Note the first time a scheduler is played will be laggy due to
 compilation time; successive plays should sound better. See the example for
 [`AudioScheduler`](@ref).
 """
