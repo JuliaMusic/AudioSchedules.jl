@@ -119,7 +119,7 @@ struct Instrument{Iterator,State}
     is_on_box::RefValue{Bool}
 end
 
-struct AudioScheduler{Sink, Time}
+struct AudioScheduler{Sink,Time}
     orchestra::Dict{Symbol,Instrument}
     triggers::OrderedDict{Time,Vector{Tuple{Symbol,Bool}}}
     sink::Sink
@@ -165,8 +165,13 @@ julia> play(scheduler) # well, still not great
 julia> close(stream)
 ```
 """
-AudioScheduler(sink::Sink, start_time::Time = 0.0s) where {Sink, Time} =
-    AudioScheduler{Sink, Time}(Dict{Symbol,Instrument}(), OrderedDict{Time,Vector{Tuple{Symbol,Bool}}}(), sink, start_time)
+AudioScheduler(sink::Sink, start_time::Time = 0.0s) where {Sink,Time} =
+    AudioScheduler{Sink,Time}(
+        Dict{Symbol,Instrument}(),
+        OrderedDict{Time,Vector{Tuple{Symbol,Bool}}}(),
+        sink,
+        start_time,
+    )
 
 """
     schedule!(scheduler::AudioScheduler, iterator, start_time, duration)
@@ -239,12 +244,7 @@ end
     )
     write(
         sink,
-        IteratorSource(
-            iterator,
-            state_box,
-            length(first(iterator)),
-            samplerate(sink)
-        ),
+        IteratorSource(iterator, state_box, length(first(iterator)), samplerate(sink)),
         (end_time - start_time),
     )
     map(setindex!, state_boxes, state_box[])
