@@ -25,9 +25,13 @@ struct IteratorSource{Iterator,State} <: SampleSource
     nchannels::Int
     samplerate::Float64
 end
+
 eltype(::IteratorSource) = Float64
+
 nchannels(source::IteratorSource) = source.nchannels
+
 samplerate(source::IteratorSource) = source.samplerate
+
 function unsafe_read!(source::IteratorSource, buf::Matrix, frameoffset, framecount)
     iterator = source.iterator
     state_box = source.state_box
@@ -45,6 +49,35 @@ function unsafe_read!(source::IteratorSource, buf::Matrix, frameoffset, framecou
     end
     state_box[] = state
     return rows
+end
+
+"""
+    IteratorSource(intended_sink, iterator)
+
+Create a source of audio samples for an `indended_sink` using an `iterator`.
+
+```jldoctest
+julia> using AudioScheduler
+
+julia> using Base: Generator
+
+julia> const SAMPLE_RATE = 44100
+
+julia> stream = PortAudioStream(samplerate = SAMPLE_RATE);
+
+julia> sink = stream.sink;
+
+julia> iterator = Generator(sin, cycles(SAMPLE_RATE, 440))
+
+julia> write(sink, IteratorSource(sink, iterator), SAMPLE_RATE)
+
+julia> close(stream)
+```
+"""
+function IteratorSource(intended_sink, iterator)
+    _, state = iterate(iterator)
+    state_box = Ref(state)
+    IteratorSource(iterator, state_box, nchannels(intended_sink), samplerate(intended_sink))
 end
 
 """
@@ -79,35 +112,6 @@ struct Envelope{Levels,Durations,Shapes}
         @assert length(durations) == length(shapes) == length(levels) - 1
         new{Levels,Durations,Shapes}(levels, durations, shapes)
     end
-end
-
-"""
-    IteratorSource(intended_sink, iterator)
-
-Create a source of audio samples for an `indended_sink` using an `iterator`.
-
-```jldoctest
-julia> using AudioScheduler
-
-julia> using Base: Generator
-
-julia> const SAMPLE_RATE = 44100
-
-julia> stream = PortAudioStream(samplerate = SAMPLE_RATE);
-
-julia> sink = stream.sink;
-
-julia> iterator = Generator(sin, cycles(SAMPLE_RATE, 440))
-
-julia> write(sink, IteratorSource(sink, iterator), SAMPLE_RATE)
-
-julia> close(stream)
-```
-"""
-function IteratorSource(intended_sink, iterator)
-    _, state = iterate(iterator)
-    state_box = Ref(state)
-    IteratorSource(iterator, state_box, nchannels(intended_sink), samplerate(intended_sink))
 end
 
 struct AudioScheduler{Sink}
@@ -163,7 +167,7 @@ AudioScheduler(sink) = AudioScheduler(
 """
     schedule!(scheduler::AudioScheduler, iterator, start_time, duration)
 
-schedule an `iterator` to be added to the `scheduler`, starting at `start_time` and lasting for
+Schedule an `iterator` to be added to the `scheduler`, starting at `start_time` and lasting for
 `duration`. You can also pass an [`Envelope`](@ref) as a duration. See the example for
 [`AudioScheduler`](@ref). Note: the scheduler will discard the first sample in the iterator
 during scheduling.
@@ -178,10 +182,10 @@ function schedule!(
     triggers = scheduler.triggers
     label = gensym("instrument")
     stop_time = start_time + duration
+    # note: will discard first sample in the iterator
     _, state = iterate(iterator)
     on_trigger = let orchestra = orchestra, label = label, iterator = iterator, state_box = Ref(state)
         function ()
-            # note: will discard first sample in the iterator
             orchestra[label] = (iterator, state_box)
             return nothing
         end
@@ -235,6 +239,7 @@ show(io::IO, scheduler::AudioScheduler) =
     write(sink, IteratorSource(sink, repeated(0.0)), (end_time - start_time)s)
     nothing
 end
+
 @noinline function _play(sink, start_time, end_time, iterator_state_boxes)
     iterators = map(first, iterator_state_boxes)
     state_boxes = map(last, iterator_state_boxes)
@@ -273,8 +278,11 @@ struct Ring
     start::Float64
     plus::Float64
 end
+
 IteratorSize(::Type{Ring}) = IsInfinite()
+
 eltype(::Type{Ring}) = Float64
+
 function iterate(ring::Ring, state = ring.start) where {Element}
     next_state = state + ring.plus
     if next_state >= TAU
@@ -311,8 +319,11 @@ struct Ramp
     start::Float64
     plus::Float64
 end
+
 IteratorSize(::Type{Ramp}) = IsInfinite()
+
 eltype(::Type{Ramp}) = Float64
+
 function iterate(line::Ramp, state = line.start)
     state, state + line.plus
 end
@@ -340,21 +351,6 @@ julia> collect(take(line(4, 0, 1, 1), 5))
 """
 function line(samplerate, start_value, end_value, duration)
     Ramp(start_value, (end_value - start_value) / (samplerate * duration))
-end
-
-function schedule_note(
-    scheduler,
-    tone,
-    samplerate,
-    start_level,
-    end_level,
-    start_time,
-    end_time,
-)
-    scheduler[start_time, end_time] = Generator(
-        product,
-        zip(tone, line(samplerate, start_level, end_level, end_time - start_time)),
-    )
 end
 
 end
