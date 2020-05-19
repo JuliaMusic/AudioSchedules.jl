@@ -12,8 +12,10 @@ using FunctionWrappers: FunctionWrapper
 const TAU = 2 * pi
 
 function broadcast_reduce(a_function)
-    function (samples)
-        broadcast(a_function, samples...)
+    let a_function = a_function
+        function (samples)
+            broadcast(a_function, samples...)
+        end
     end
 end
 
