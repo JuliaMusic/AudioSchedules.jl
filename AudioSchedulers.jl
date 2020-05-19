@@ -140,12 +140,14 @@ julia> using PortAudio: PortAudioStream
 
 julia> using Base: Generator
 
+julia> using Unitful: s, Hz
+
 julia> const SAMPLE_RATE = 44100 * Hz
 
 julia> stream = PortAudioStream(samplerate = SAMPLE_RATE / Hz)
 
 julia> scheduler = AudioScheduler(stream.sink)
-AudioScheduler with triggers at Float64[] seconds
+AudioScheduler with triggers at ()
 
 julia> envelope = Envelope((0.0, 0.25, 0.25, 0.0), (0.5s, 0.5s, 0.5s), (line, line, line));
 
@@ -156,7 +158,7 @@ julia> schedule!(scheduler, Generator(sin, cycles(SAMPLE_RATE, 440 * Hz)), 1.5s,
 julia> schedule!(scheduler, Generator(sin, cycles(SAMPLE_RATE, 550 * Hz)), 1.5s, envelope)
 
 julia> scheduler
-AudioScheduler with triggers at [0.0, 0.5, 1.0, 1.5, 2.0, 2.5, 3.0] seconds
+AudioScheduler with triggers at (0.0 s, 0.5 s, 1.0 s, 1.5 s, 2.0 s, 2.5 s, 3.0 s)
 
 julia> play(scheduler) # laggy due to compilation
 
@@ -228,7 +230,7 @@ function schedule!(scheduler::AudioScheduler, iterator, start_time, envelope::En
 end
 
 show(io::IO, scheduler::AudioScheduler) =
-    print(io, "AudioScheduler with triggers at $(keys(scheduler.triggers)) seconds")
+    print(io, "AudioScheduler with triggers at $((keys(scheduler.triggers)...,))")
 
 @noinline function _play(sink, start_time, end_time, ::Tuple{})
     write(sink, IteratorSource(sink, repeated(0.0)), (end_time - start_time))
@@ -258,9 +260,9 @@ Play a [`AudioScheduler`](@ref). Note the first time a scheduler is played will 
 compilation time; successive plays should sound better. See the example for
 [`AudioScheduler`](@ref).
 """
+
 function play(scheduler::AudioScheduler)
     start_time = scheduler.start_time
-    orchestra = scheduler.orchestra
     triggers = scheduler.triggers
     for (end_time, trigger_list) in pairs(triggers)
         _play(
