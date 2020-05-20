@@ -64,7 +64,7 @@ function unsafe_read!(source::IteratorSource, buf::Matrix, frameoffset, framecou
             state_box[] = state
             return row - 1
         else
-            item, state = iterate(iterator, state)
+            item, state = result
             buf[row, 1] = item
         end
     end
@@ -145,6 +145,7 @@ struct AudioScheduler{Sink}
     orchestra::Dict{Symbol,Instrument}
     triggers::OrderedDict{Float64,Vector{Tuple{Symbol,Bool}}}
     sink::Sink
+    consumed_box::Ref{Bool}
 end
 
 """
@@ -194,8 +195,6 @@ julia> schedule!(scheduler, AudioGenerator(sin, 440.0), 4, envelope)
 
 julia> play(scheduler) # laggy due to compilation
 
-julia> play(scheduler) # well, still not great
-
 julia> close(stream)
 ```
 """
@@ -203,7 +202,8 @@ AudioScheduler(sink::Sink) where {Sink} =
     AudioScheduler{Sink}(
         Dict{Symbol,Instrument}(),
         OrderedDict{Float64,Vector{Tuple{Symbol,Bool}}}(),
-        sink
+        sink,
+        Ref(false)
     )
 
 """
@@ -294,26 +294,32 @@ compilation time; successive plays should sound better. See the example for
 [`AudioScheduler`](@ref).
 """
 function play(scheduler::AudioScheduler)
-    start_time = 0.0
-    triggers = scheduler.triggers
-    orchestra = scheduler.orchestra
-    for instrument in values(orchestra)
-        # reset state
-        _, state = iterate(instrument.iterator)
-        instrument.state_box[] = state
-    end
-    for (end_time, trigger_list) in pairs(triggers)
-        _play(
-            scheduler.sink,
-            start_time,
-            end_time,
-            ((instrument for instrument in values(orchestra) if instrument.is_on_box[])...,),
-        )
-        for (label, is_on) in trigger_list
-            orchestra[label].is_on_box[] = is_on
+    consumed_box = scheduler.consumed_box
+    if consumed_box[]
+        error("This scheduler has already been played!")
+    else
+        start_time = 0.0
+        triggers = scheduler.triggers
+        orchestra = scheduler.orchestra
+        for instrument in values(orchestra)
+            # reset state
+            _, state = iterate(instrument.iterator)
+            instrument.state_box[] = state
         end
-        start_time = end_time
+        for (end_time, trigger_list) in pairs(triggers)
+            _play(
+                scheduler.sink,
+                start_time,
+                end_time,
+                ((instrument for instrument in values(orchestra) if instrument.is_on_box[])...,),
+            )
+            for (label, is_on) in trigger_list
+                orchestra[label].is_on_box[] = is_on
+            end
+            start_time = end_time
+        end
     end
+    consumed_box[] = true
 end
 
 IteratorSize(::Type{Ramp}) = IsInfinite()
