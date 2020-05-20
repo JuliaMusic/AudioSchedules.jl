@@ -7,7 +7,7 @@ using DataStructures: OrderedDict
 using PortAudio: PortAudioStream
 import SampledSignals: samplerate, nchannels, unsafe_read!
 using SampledSignals: Hz, s, SampleSource
-
+using Base.FastMath: mul_fast, add_fast
 const TAU = 2 * pi
 
 struct Ring
@@ -15,14 +15,14 @@ struct Ring
     plus::Float64
 end
 
-IteratorSize(::Type{Ring}) = IsInfinite()
+@inline IteratorSize(::Type{Ring}) = IsInfinite()
 
-eltype(::Type{Ring}) = Float64
+@inline eltype(::Type{Ring}) = Float64
 
-function iterate(ring::Ring, state = ring.start) where {Element}
-    next_state = state + ring.plus
+@inline function iterate(ring::Ring, state = ring.start) where {Element}
+    @fastmath next_state = state + ring.plus
     if next_state >= TAU
-        next_state = next_state - TAU
+        @fastmath next_state = next_state - TAU
     end
     state, next_state
 end
@@ -32,9 +32,9 @@ struct Ramp
     plus::Float64
 end
 
-function splat(a_function)
+@inline function splat(a_function)
     let a_function = a_function
-        function (samples)
+        @inline function (samples)
             a_function(samples...)
         end
     end
@@ -47,26 +47,43 @@ struct IteratorSource{Iterator,State} <: SampleSource
     samplerate::Float64
 end
 
-eltype(::IteratorSource) = Float64
+@inline eltype(::IteratorSource) = Float64
 
-nchannels(source::IteratorSource) = source.nchannels
+@inline nchannels(source::IteratorSource) = source.nchannels
 
-samplerate(source::IteratorSource) = source.samplerate
+@inline samplerate(source::IteratorSource) = source.samplerate
 
-function unsafe_read!(source::IteratorSource, buf::Matrix, frameoffset, framecount)
+@inline function unsafe_read!(source::IteratorSource, buf::Matrix, frameoffset, framecount)
+    _unsafe_read!(source, buf, frameoffset, framecount, IteratorSize(source))
+end
+
+@inline function _unsafe_read!(source, buf, frameoffset, framecount, _)
     iterator = source.iterator
     state_box = source.state_box
     state = state_box[]
-    rows = size(buf)[1]
-    for row = 1:rows
+    rows = length(buf)
+    for index = eachindex(buf)
         result = iterate(iterator, state)
         if result === nothing
             state_box[] = state
             return row - 1
         else
             item, state = result
-            buf[row, 1] = item
+            @inbounds buf[index] = item
         end
+    end
+    state_box[] = state
+    return rows
+end
+
+@inline function _unsafe_read!(source, buf, frameoffset, framecount, ::IsInfinite)
+    iterator = source.iterator
+    state_box = source.state_box
+    state = state_box[]
+    rows = length(buf)
+    for index = eachindex(buf)
+        item, state = iterate(iterator, state)
+        @inbounds buf[index] = item
     end
     state_box[] = state
     return rows
@@ -95,7 +112,7 @@ julia> write(sink, IteratorSource(sink, iterator), SAMPLE_RATE)
 julia> close(stream)
 ```
 """
-function IteratorSource(intended_sink, iterator)
+@inline function IteratorSource(intended_sink, iterator)
     _, state = iterate(iterator)
     state_box = Ref(state)
     IteratorSource(iterator, state_box, 1, samplerate(intended_sink))
@@ -125,7 +142,7 @@ struct Envelope{Levels,Durations,Shapes}
     levels::Levels
     durations::Durations
     shapes::Shapes
-    function Envelope(
+    @inline function Envelope(
         levels::Levels,
         durations::Durations,
         shapes::Shapes,
@@ -158,11 +175,11 @@ struct Periodic{AFunction}
     frequency::Float64
 end
 
-function make_iterator(generator::Periodic, samplerate)
+@inline function make_iterator(generator::Periodic, samplerate)
     Generator(generator.a_function, Ring(0, generator.frequency / samplerate * TAU))
 end
 
-make_iterator(something, samplerate) = something
+@inline make_iterator(something, samplerate) = something
 
 """
     AudioScheduler(sink, start_time = 0.0)
@@ -187,18 +204,18 @@ AudioScheduler with triggers at ()
 
 julia> envelope = Envelope((0.0, 0.25, 0.0), (2, 2), (line, line));
 
-julia> schedule!(scheduler, Periodic(sin, 440.0), 0, envelope)
+julia> schedule!(scheduler, Periodic((@fastmath sin), 440.0), 0, envelope)
 
-julia> schedule!(scheduler, Periodic(sin, 550.0), 4, envelope)
+julia> schedule!(scheduler, Periodic((@fastmath sin), 550.0), 4, envelope)
 
-julia> schedule!(scheduler, Periodic(sin, 440.0), 4, envelope)
+julia> schedule!(scheduler, Periodic((@fastmath sin), 440.0), 4, envelope)
 
 julia> play(scheduler) # laggy due to compilation
 
 julia> close(stream)
 ```
 """
-AudioScheduler(sink::Sink) where {Sink} =
+@inline AudioScheduler(sink::Sink) where {Sink} =
     AudioScheduler{Sink}(
         Dict{Symbol,Instrument}(),
         OrderedDict{Float64,Vector{Tuple{Symbol,Bool}}}(),
@@ -214,15 +231,14 @@ lasting for `duration`. You can also pass an [`Envelope`](@ref) as a duration. S
 example for [`AudioScheduler`](@ref). Note: the scheduler will discard the first sample in
 the iterator during scheduling.
 """
-function schedule!(scheduler::AudioScheduler, generator, start_time, duration)
+@inline function schedule!(scheduler::AudioScheduler, generator, start_time, duration)
     iterator = make_iterator(generator, samplerate(scheduler.sink))
-    orchestra = scheduler.orchestra
     triggers = scheduler.triggers
     label = gensym("instrument")
     stop_time = start_time + duration
     # note: will discard first sample in the iterator
     _, state = iterate(iterator)
-    orchestra[label] = Instrument(iterator, Ref(state), Ref(false))
+    scheduler.orchestra[label] = Instrument(iterator, Ref(state), Ref(false))
     on_trigger = (label, true)
     if haskey(triggers, start_time)
         push!(triggers[start_time], on_trigger)
@@ -238,7 +254,7 @@ function schedule!(scheduler::AudioScheduler, generator, start_time, duration)
     nothing
 end
 
-function schedule!(scheduler::AudioScheduler, generator, start_time, envelope::Envelope)
+@inline function schedule!(scheduler::AudioScheduler, generator, start_time, envelope::Envelope)
     the_samplerate = samplerate(scheduler.sink)
     iterator = make_iterator(generator, the_samplerate)
     durations = envelope.durations
@@ -249,7 +265,7 @@ function schedule!(scheduler::AudioScheduler, generator, start_time, envelope::E
         schedule!(
             scheduler,
             Generator(
-                splat(*),
+                splat(@fastmath *),
                 zip(
                     iterator,
                     shapes[index](the_samplerate, levels[index], levels[index+1], duration),
@@ -262,7 +278,7 @@ function schedule!(scheduler::AudioScheduler, generator, start_time, envelope::E
     end
 end
 
-show(io::IO, scheduler::AudioScheduler) =
+@inline show(io::IO, scheduler::AudioScheduler) =
     print(io, "AudioScheduler with triggers at $((keys(scheduler.triggers)...,))")
 
 @noinline function _play(sink, start_time, end_time, ::Tuple{})
@@ -271,15 +287,19 @@ show(io::IO, scheduler::AudioScheduler) =
 end
 
 @noinline function _play(sink, start_time, end_time, instruments)
-    state_boxes = map(instrument -> instrument.state_box, instruments)
+    state_boxes = map((@inline function (instrument)
+        instrument.state_box
+    end), instruments)
     state_box = Ref(map(getindex, state_boxes))
     iterator = Generator(
-        splat(+),
-        zip(map(instrument -> instrument.iterator, instruments)...),
+        splat(@fastmath +),
+        zip(map((@inline function (instrument)
+            instrument.iterator
+        end), instruments)...)
     )
     write(
         sink,
-        IteratorSource(iterator, state_box, length(first(iterator)), samplerate(sink)),
+        IteratorSource(iterator, state_box, 1, samplerate(sink)),
         (end_time - start_time)s,
     )
     map(setindex!, state_boxes, state_box[])
@@ -293,14 +313,14 @@ Play a [`AudioScheduler`](@ref). Note the first time a scheduler is played will 
 compilation time; successive plays should sound better. See the example for
 [`AudioScheduler`](@ref).
 """
-function play(scheduler::AudioScheduler)
+@inline function play(scheduler::AudioScheduler)
     consumed_box = scheduler.consumed_box
     if consumed_box[]
         error("This scheduler has already been played!")
     else
         start_time = 0.0
         triggers = scheduler.triggers
-        orchestra = scheduler.orchestra
+        orchestra = orchestra = Dict((pair.first => pair.second for pair in pairs(scheduler.orchestra)))
         for instrument in values(orchestra)
             # reset state
             _, state = iterate(instrument.iterator)
@@ -322,12 +342,12 @@ function play(scheduler::AudioScheduler)
     consumed_box[] = true
 end
 
-IteratorSize(::Type{Ramp}) = IsInfinite()
+@inline IteratorSize(::Type{Ramp}) = IsInfinite()
 
-eltype(::Type{Ramp}) = Float64
+@inline eltype(::Type{Ramp}) = Float64
 
-function iterate(line::Ramp, state = line.start)
-    state, state + line.plus
+@inline function iterate(line::Ramp, state = line.start)
+    state, @fastmath state + line.plus
 end
 
 """
@@ -351,7 +371,7 @@ julia> collect(take(line(4, 0, 1, 1), 5))
  1.0
 ```
 """
-function line(samplerate, start_value, end_value, duration)
+@inline function line(samplerate, start_value, end_value, duration)
     Ramp(start_value, (end_value - start_value) / (samplerate * duration))
 end
 
