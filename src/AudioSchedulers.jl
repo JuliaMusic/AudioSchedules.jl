@@ -4,7 +4,6 @@ import Base: eltype, iterate, IteratorSize, read!, setindex!, show
 using Base: Generator, IsInfinite, RefValue
 using Base.Iterators: repeated
 using DataStructures: OrderedDict
-using PortAudio: PortAudioStream
 import SampledSignals: samplerate, nchannels, unsafe_read!
 using SampledSignals: Hz, s, SampleSource
 const TAU = 2 * pi
@@ -189,15 +188,15 @@ struct AudioScheduler{Sink}
 end
 
 """
-    Map(a_function, generators)
+    Map(a_function, synthesizers)
 
-Map `a_function` over audio `generators`.
+Map `a_function` over audio `synthesizers`.
 """
-struct Map{AFunction,Generators}
+struct Map{AFunction,Synthesizers}
     a_function::AFunction
-    generators::Generators
-    Map(a_function::AFunction, generators...) where {AFunction} =
-        new{AFunction,typeof(generators)}(a_function, generators)
+    synthesizers::Synthesizers
+    Map(a_function::AFunction, synthesizers...) where {AFunction} =
+        new{AFunction,typeof(synthesizers)}(a_function, synthesizers)
 end
 export Map
 
@@ -208,14 +207,14 @@ function make_iterator(a_map::Map, samplerate)
         end,
         zip(map((
             let samplerate = samplerate
-                 generator -> make_iterator(generator, samplerate)
+                 synthesizer -> make_iterator(synthesizer, samplerate)
             end
-        ), a_map.generators)...),
+        ), a_map.synthesizers)...),
     )
 end
 
 function make_iterator(a_map::Map{<:Any,Tuple{<:Any}}, samplerate)
-    Generator(a_map.a_function, make_iterator(a_map.generators[1], samplerate))
+    Generator(a_map.a_function, make_iterator(a_map.synthesizers[1], samplerate))
 end
 
 """
@@ -227,12 +226,12 @@ make_iterator(synthesizer, samplerate) = synthesizer
 export make_iterator
 
 """
-    AudioScheduler(sink, start_time = 0.0)
+    AudioScheduler(sink)
 
 Create a `AudioScheduler` to schedule changes to sink.
 
 ```jldoctest scheduler
-julia> using AudioScheduler
+julia> using AudioSchedulers
 
 julia> using Unitful: s, Hz
 
@@ -244,7 +243,7 @@ julia> scheduler = AudioScheduler(stream.sink)
 AudioScheduler with triggers at ()
 ```
 
-Add an generator to the schedule with [`schedule!`](@ref). You can schedule for a duration
+Add a synthesizer to the schedule with [`schedule!`](@ref). You can schedule for a duration
 in seconds, or use an [`Envelope`](@ref).
 
 ```jldoctest scheduler
@@ -265,7 +264,7 @@ julia> play(scheduler)
 
 You can only play a scheduler once.
 
-```jldoctest schduler
+```jldoctest scheduler
 julia> play(scheduler)
 ERROR: EOFError: read end of file
 [...]
@@ -282,16 +281,16 @@ AudioScheduler(sink::Sink) where {Sink} = AudioScheduler{Sink}(
 export AudioScheduler
 
 """
-    schedule!(scheduler::AudioScheduler, generator, start_time, duration)
+    schedule!(scheduler::AudioScheduler, synthesizer, start_time, duration)
 
-Schedule an audio generator to be added to the `scheduler`, starting at `start_time` and
+Schedule an audio synthesizer to be added to the `scheduler`, starting at `start_time` and
 lasting for `duration`. You can also pass an [`Envelope`](@ref) as a duration. See the
 example for [`AudioScheduler`](@ref). Note: the scheduler will discard the first sample in
 the iterator during scheduling.
 """
-function schedule!(scheduler::AudioScheduler, generator, start_time, duration)
+function schedule!(scheduler::AudioScheduler, synthesizer, start_time, duration)
     start_time_unitless = start_time / s
-    iterator = make_iterator(generator, samplerate(scheduler.sink))
+    iterator = make_iterator(synthesizer, samplerate(scheduler.sink))
     triggers = scheduler.triggers
     label = gensym("instrument")
     stop_time = start_time_unitless + duration / s
@@ -315,7 +314,7 @@ end
 
 function schedule!(
     scheduler::AudioScheduler,
-    generator,
+    synthesizer,
     start_time,
     envelope::Envelope,
 )
@@ -327,7 +326,7 @@ function schedule!(
         duration = durations[index]
         schedule!(
             scheduler,
-            Map(*, generator, shapes[index](levels[index], levels[index+1], duration)),
+            Map(*, synthesizer, shapes[index](levels[index], levels[index+1], duration)),
             start_time,
             duration,
         )
@@ -390,6 +389,7 @@ function play(scheduler::AudioScheduler)
         end
     end
     consumed_box[] = true
+    return nothing
 end
 export play
 
