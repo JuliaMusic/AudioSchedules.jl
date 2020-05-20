@@ -149,16 +149,16 @@ struct AudioScheduler{Sink}
 end
 
 """
-    AudioGenerator(a_function, frequency)
+    Periodic(a_function, frequency)
 
 A periodic function with period 2π to be played at a `frequency` in hertz.
 """
-struct AudioGenerator{AFunction}
+struct Periodic{AFunction}
     a_function::AFunction
     frequency::Float64
 end
 
-function make_iterator(generator::AudioGenerator, samplerate)
+function make_iterator(generator::Periodic, samplerate)
     Generator(generator.a_function, Ring(0, generator.frequency / samplerate * TAU))
 end
 
@@ -187,11 +187,11 @@ AudioScheduler with triggers at ()
 
 julia> envelope = Envelope((0.0, 0.25, 0.0), (2, 2), (line, line));
 
-julia> schedule!(scheduler, AudioGenerator(sin, 440.0), 0, envelope)
+julia> schedule!(scheduler, Periodic(sin, 440.0), 0, envelope)
 
-julia> schedule!(scheduler, AudioGenerator(sin, 550.0), 4, envelope)
+julia> schedule!(scheduler, Periodic(sin, 550.0), 4, envelope)
 
-julia> schedule!(scheduler, AudioGenerator(sin, 440.0), 4, envelope)
+julia> schedule!(scheduler, Periodic(sin, 440.0), 4, envelope)
 
 julia> play(scheduler) # laggy due to compilation
 
