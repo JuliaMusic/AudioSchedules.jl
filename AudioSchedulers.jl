@@ -6,7 +6,7 @@ using Base.Iterators: repeated
 using DataStructures: OrderedDict
 using PortAudio: PortAudioStream
 import SampledSignals: samplerate, nchannels, unsafe_read!
-using SampledSignals: s, SampleSource
+using SampledSignals: Hz, s, SampleSource
 const TAU = 2 * pi
 
 # TODO: add units
@@ -40,12 +40,13 @@ end
 """
     Line(start_value, end_value, duration)
 
-A line from `start_value` to `end_value` that lasts for `duration` seconds.
+A line from `start_value` to `end_value` that lasts for `duration`.
 """
 struct Line <: Synthesizer
     start_value::Float64
     end_value::Float64
     duration::Float64
+    Line(start_value, end_value, duration) = new(start_value, end_value, duration / s)
 end
 
 function make_iterator(line::Line, samplerate)
@@ -77,7 +78,9 @@ Cycles from 0 2π to repeat at a `frequency` in hertz.
 """
 struct Cycles <: Synthesizer
     frequency::Float64
+    Cycles(frequency) = new(frequency / Hz)
 end
+
 export Cycles
 
 function make_iterator(cycles::Cycles, samplerate)
@@ -101,7 +104,7 @@ samplerate(source::IteratorSource) = source.samplerate
     _unsafe_read!(source, buf, frameoffset, framecount, IteratorSize(source))
 end
 
-@inline function _unsafe_read!(source::IteratorSource, buf, frameoffset, framecount, _)
+@inline function _unsafe_read!(source, buf, frameoffset, framecount, _)
     iterator = source.iterator
     state_box = source.state_box
     state = state_box[]
@@ -150,15 +153,15 @@ shape(start_value, end_value, duration) -> Synthesizer
 envelope. For example,
 
 ```
-Envelope([0.0, 1.0, 1.0, 0.0], [.05, 0.9, 0.05], [Line, Line, Line])
+Envelope([0.0, 1.0, 1.0, 0.0], [.05 s, 0.9 s, 0.05 s], [Line, Line, Line])
 ```
 
 will create an envelope with three segments:
 
 ```
-Line(0.0, 1.0, 0.05)
-Line(1.0, 1.0, 0.9)
-Line(s1.0, 0.0, 0.05)
+Line(0.0, 1.0, 0.05 s)
+Line(1.0, 1.0, 0.9 s)
+Line(s1.0, 0.0, 0.05 s)
 ```
 
 See the example for [`AudioScheduler`](@ref).
@@ -199,7 +202,7 @@ Map `a_function` over audio `generators`.
 struct Map{AFunction,Generators}
     a_function::AFunction
     generators::Generators
-     Map(a_function::AFunction, generators...) where {AFunction} =
+    Map(a_function::AFunction, generators...) where {AFunction} =
         new{AFunction,typeof(generators)}(a_function, generators)
 end
 export Map
@@ -231,6 +234,8 @@ Create a `AudioScheduler` to schedule changes to sink.
 ```jldoctest scheduler
 julia> using AudioScheduler
 
+julia> using Unitful: s, Hz
+
 julia> using PortAudio: PortAudioStream
 
 julia> stream = PortAudioStream(samplerate = 44100);
@@ -243,13 +248,13 @@ Add an generator to the schedule with [`schedule!`](@ref). You can schedule for 
 in seconds, or use an [`Envelope`](@ref).
 
 ```jldoctest scheduler
-julia> envelope = Envelope((0, 0.25, 0), (0.05, 0.95), (Line, Line));
+julia> envelope = Envelope((0, 0.25, 0), (0.05s, 0.95s), (Line, Line));
 
-julia> schedule!(scheduler, Map(sin, Cycles(440.0)), 0, envelope)
+julia> schedule!(scheduler, Map(sin, Cycles(440Hz)), 0s, envelope)
 
-julia> schedule!(scheduler, Map(sin, Cycles(440.0)), 1, envelope)
+julia> schedule!(scheduler, Map(sin, Cycles(440Hz)), 1s, envelope)
 
-julia> schedule!(scheduler, Map(sin, Cycles(550.0)), 1, envelope)
+julia> schedule!(scheduler, Map(sin, Cycles(550Hz)), 1s, envelope)
 ```
 
 Then, you can play it with [`play`](@ref).
@@ -280,23 +285,24 @@ export AudioScheduler
     schedule!(scheduler::AudioScheduler, generator, start_time, duration)
 
 Schedule an audio generator to be added to the `scheduler`, starting at `start_time` and
-lasting for `duration`, both in seconds. You can also pass an [`Envelope`](@ref) as a
-duration. See the example for [`AudioScheduler`](@ref). Note: the scheduler will discard the
-first sample in the iterator during scheduling.
+lasting for `duration`. You can also pass an [`Envelope`](@ref) as a duration. See the
+example for [`AudioScheduler`](@ref). Note: the scheduler will discard the first sample in
+the iterator during scheduling.
 """
 function schedule!(scheduler::AudioScheduler, generator, start_time, duration)
+    start_time_unitless = start_time / s
     iterator = make_iterator(generator, samplerate(scheduler.sink))
     triggers = scheduler.triggers
     label = gensym("instrument")
-    stop_time = start_time + duration
+    stop_time = start_time_unitless + duration / s
     # TODO: don't discard first sample
     _, state = iterate(iterator)
     scheduler.orchestra[label] = Instrument(iterator, Ref(state), Ref(false))
     on_trigger = (label, true)
-    if haskey(triggers, start_time)
-        push!(triggers[start_time], on_trigger)
+    if haskey(triggers, start_time_unitless)
+        push!(triggers[start_time_unitless], on_trigger)
     else
-        triggers[start_time] = [on_trigger]
+        triggers[start_time_unitless] = [on_trigger]
     end
     off_trigger = (label, false)
     if haskey(triggers, stop_time)
