@@ -9,20 +9,13 @@ import SampledSignals: samplerate, nchannels, unsafe_read!
 using SampledSignals: Hz, s, SampleSource
 const TAU = 2 * pi
 
-# TODO: add units
-# TODO: create a new package
-# TODO: make tests pass
-
 """
     abstract type Synthesizer
 
-Synthesizers need only support one function:
-
-```
-make_iterator(synthesizer, samplerate) -> iterator
-```
+Synthesizers need only support [`make_iterator`](@ref).
 """
 abstract type Synthesizer end
+export Synthesizer
 
 struct LineIterator
     start::Float64
@@ -48,6 +41,7 @@ struct Line <: Synthesizer
     duration::Float64
     Line(start_value, end_value, duration) = new(start_value, end_value, duration / s)
 end
+export Line
 
 function make_iterator(line::Line, samplerate)
     start_value = line.start_value
@@ -224,7 +218,13 @@ function make_iterator(a_map::Map{<:Any,Tuple{<:Any}}, samplerate)
     Generator(a_map.a_function, make_iterator(a_map.generators[1], samplerate))
 end
 
-make_iterator(something, samplerate) = something
+"""
+    make_iterator(synthesizer, samplerate)
+
+Return an iterator that will the `synthesizer` at a given `samplerate`
+"""
+make_iterator(synthesizer, samplerate) = synthesizer
+export make_iterator
 
 """
     AudioScheduler(sink, start_time = 0.0)
@@ -267,7 +267,7 @@ You can only play a scheduler once.
 
 ```jldoctest schduler
 julia> play(scheduler)
-ERROR: This scheduler has already been played!
+ERROR: EOFError: read end of file
 [...]
 
 julia> close(stream)
@@ -334,7 +334,6 @@ function schedule!(
         start_time = start_time + duration
     end
 end
-
 export schedule!
 
 show(io::IO, scheduler::AudioScheduler) =
@@ -369,7 +368,7 @@ Play an [`AudioScheduler`](@ref). See the example for [`AudioScheduler`](@ref).
 function play(scheduler::AudioScheduler)
     consumed_box = scheduler.consumed_box
     if consumed_box[]
-        error("This scheduler has already been played!")
+        throw(EOFError())
     else
         start_time = 0.0
         triggers = scheduler.triggers
@@ -392,5 +391,6 @@ function play(scheduler::AudioScheduler)
     end
     consumed_box[] = true
 end
+export play
 
 end
