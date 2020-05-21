@@ -36,7 +36,6 @@ source = IteratorSource(
     samplerate(sink),
 )
 
-@code_warntype iterate(source.iterator)
-g = source.iterator.iter.is[1]
-@code_warntype iterate(g)
-@code_warntype g.f(iterate(g.iter)[1])
+@code_warntype iterate(g) # NOT INFERRED!
+@code_warntype iterate(g.iter) # inferred
+@code_warntype g.f(iterate(g.iter)[1]) # inferred
