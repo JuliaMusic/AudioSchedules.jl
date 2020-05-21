@@ -258,7 +258,7 @@ julia> schedule!(schedule, Map((@fastmath sin), Cycles(440Hz)), 2s, envelope)
 julia> schedule!(schedule, Map((@fastmath sin), Cycles(550Hz)), 2s, envelope)
 
 julia> schedule
-AudioSchedule with triggers at (0.0, 0.05, 1.0, 1.05, 2.0) seconds
+AudioSchedule with triggers at (0.0, 1.0, 2.0, 3.0, 4.0) seconds
 ```
 
 Then, you can play it with [`play`](@ref).
@@ -267,12 +267,17 @@ Then, you can play it with [`play`](@ref).
 julia> play(schedule)
 ```
 
-You can only play a schedule once.
+You can only play a schedule once. If you would like to play it again, you must explicitly
+[`restart!`](@ref) it.
 
 ```jldoctest schedule
 julia> play(schedule)
 ERROR: EOFError: read end of file
 [...]
+
+julia> restart!(schedule)
+
+julia> play(schedule)
 
 julia> close(stream)
 ```
@@ -316,6 +321,21 @@ the iterator during scheduling.
     end
     nothing
 end
+
+"""
+    restart!(schedule::AudioSchedule)
+
+Restart a schedule.
+"""
+function restart!(schedule::AudioSchedule)
+    for instrument in values(schedule.orchestra)
+        _, state = iterate(instrument.iterator)
+        instrument.state = state
+    end
+    schedule.consumed = false
+    nothing
+end
+export restart!
 
 @inline function schedule!(
     schedule::AudioSchedule,
