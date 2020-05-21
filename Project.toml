@@ -11,6 +11,7 @@ SampledSignals = "bd7594eb-a658-542f-9e75-4c4d8908c167"
 [compat]
 DataStructures = "0.17.16"
 SampledSignals = "2.1.0"
+PortAudio = "1.1.0"
 
 [extras]
 Documenter = "e30172f5-a6a5-5a46-863b-614d45cd2de4"
