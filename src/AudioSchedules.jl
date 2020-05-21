@@ -21,12 +21,12 @@ struct LineIterator
     plus::Float64
 end
 
-IteratorSize(::Type{LineIterator}) = IsInfinite()
+@inline IteratorSize(::Type{LineIterator}) = IsInfinite()
 
-eltype(::Type{LineIterator}) = Float64
+@inline eltype(::Type{LineIterator}) = Float64
 
 @inline function iterate(line::LineIterator, state = line.start)
-    state, state + line.plus
+    state, @fastmath state + line.plus
 end
 
 """
@@ -38,11 +38,12 @@ struct Line <: Synthesizer
     start_value::Float64
     end_value::Float64
     duration::Float64
-    Line(start_value, end_value, duration) = new(start_value, end_value, duration / s)
+    @inline Line(start_value, end_value, duration) =
+        new(start_value, end_value, duration / s)
 end
 export Line
 
-function make_iterator(line::Line, samplerate)
+@inline function make_iterator(line::Line, samplerate)
     start_value = line.start_value
     LineIterator(start_value, (line.end_value - start_value) / (samplerate * line.duration))
 end
@@ -52,14 +53,14 @@ struct CyclesIterator
     plus::Float64
 end
 
-IteratorSize(::Type{CyclesIterator}) = IsInfinite()
+@inline IteratorSize(::Type{CyclesIterator}) = IsInfinite()
 
-eltype(::Type{CyclesIterator}) = Float64
+@inline eltype(::Type{CyclesIterator}) = Float64
 
 @inline function iterate(ring::CyclesIterator, state = ring.start) where {Element}
-    next_state = state + ring.plus
+    @fastmath next_state = state + ring.plus
     if next_state >= TAU
-        next_state = next_state - TAU
+        @fastmath next_state = next_state - TAU
     end
     state, next_state
 end
@@ -71,12 +72,12 @@ Cycles from 0 2π to repeat at a `frequency`.
 """
 struct Cycles <: Synthesizer
     frequency::Float64
-    Cycles(frequency) = new(frequency / Hz)
+    @inline Cycles(frequency) = new(frequency / Hz)
 end
 
 export Cycles
 
-function make_iterator(cycles::Cycles, samplerate)
+@inline function make_iterator(cycles::Cycles, samplerate)
     CyclesIterator(0, cycles.frequency / samplerate * TAU)
 end
 
@@ -87,11 +88,11 @@ mutable struct IteratorSource{Iterator,State} <: SampleSource
     samplerate::Float64
 end
 
-eltype(::IteratorSource) = Float64
+@inline eltype(::IteratorSource) = Float64
 
-nchannels(source::IteratorSource) = source.nchannels
+@inline nchannels(source::IteratorSource) = source.nchannels
 
-samplerate(source::IteratorSource) = source.samplerate
+@inline samplerate(source::IteratorSource) = source.samplerate
 
 @inline function unsafe_read!(source::IteratorSource, buf::Matrix, frameoffset, framecount)
     _unsafe_read!(source, buf, frameoffset, framecount, IteratorSize(source))
@@ -125,7 +126,7 @@ end
     return length(buf)
 end
 
-function IteratorSource(intended_sink, iterator)
+@inline function IteratorSource(intended_sink, iterator)
     _, state = iterate(iterator)
     IteratorSource(iterator, state, 1, samplerate(intended_sink))
 end
@@ -160,7 +161,7 @@ struct Envelope{Levels,Durations,Shapes}
     levels::Levels
     durations::Durations
     shapes::Shapes
-    function Envelope(
+    @inline function Envelope(
         levels::Levels,
         durations::Durations,
         shapes::Shapes,
@@ -197,25 +198,24 @@ struct Map{AFunction,Synthesizers}
 end
 export Map
 
-function make_iterator(a_map::Map, samplerate)
+@inline function make_iterator(a_map::Map, samplerate)
     Generator(
         let a_function = a_map.a_function
             @inline function (samples)
                 a_function(samples...)
             end
         end,
-        zip(map(
-            (
-                let samplerate = samplerate
-                    synthesizer -> make_iterator(synthesizer, samplerate)
+        zip(map((
+            let samplerate = samplerate
+                @inline function (synthesizer)
+                    make_iterator(synthesizer, samplerate)
                 end
-            ),
-            a_map.synthesizers,
-        )...),
+            end
+        ), a_map.synthesizers)...),
     )
 end
 
-function make_iterator(a_map::Map{<:Any,Tuple{<:Any}}, samplerate)
+@inline function make_iterator(a_map::Map{<:Any,Tuple{<:Any}}, samplerate)
     Generator(a_map.a_function, make_iterator(a_map.synthesizers[1], samplerate))
 end
 
@@ -224,7 +224,7 @@ end
 
 Return an iterator that will the `synthesizer` at a given `samplerate`
 """
-make_iterator(synthesizer, samplerate) = synthesizer
+@inline make_iterator(synthesizer, samplerate) = synthesizer
 export make_iterator
 
 """
@@ -251,11 +251,11 @@ in seconds, or use an [`Envelope`](@ref).
 ```jldoctest schedule
 julia> envelope = Envelope((0, 0.25, 0), (0.05s, 0.95s), (Line, Line));
 
-julia> schedule!(schedule, Map(sin, Cycles(440Hz)), 0s, envelope)
+julia> schedule!(schedule, Map((@fastmath sin), Cycles(440Hz)), 0s, envelope)
 
-julia> schedule!(schedule, Map(sin, Cycles(440Hz)), 1s, envelope)
+julia> schedule!(schedule, Map((@fastmath sin), Cycles(440Hz)), 1s, envelope)
 
-julia> schedule!(schedule, Map(sin, Cycles(550Hz)), 1s, envelope)
+julia> schedule!(schedule, Map((@fastmath sin), Cycles(550Hz)), 1s, envelope)
 
 julia> schedule
 AudioSchedule with triggers at (0.0, 0.05, 1.0, 1.05, 2.0) seconds
@@ -277,7 +277,7 @@ ERROR: EOFError: read end of file
 julia> close(stream)
 ```
 """
-AudioSchedule(sink::Sink) where {Sink} = AudioSchedule{Sink}(
+@inline AudioSchedule(sink::Sink) where {Sink} = AudioSchedule{Sink}(
     Dict{Symbol,Instrument}(),
     OrderedDict{Float64,Vector{Tuple{Symbol,Bool}}}(),
     sink,
@@ -293,7 +293,7 @@ lasting for `duration`. You can also pass an [`Envelope`](@ref) as a duration. S
 example for [`AudioSchedule`](@ref). Note: the schedule will discard the first sample in
 the iterator during scheduling.
 """
-function schedule!(schedule::AudioSchedule, synthesizer, start_time, duration)
+@inline function schedule!(schedule::AudioSchedule, synthesizer, start_time, duration)
     start_time_unitless = start_time / s
     iterator = make_iterator(synthesizer, samplerate(schedule.sink))
     triggers = schedule.triggers
@@ -317,7 +317,12 @@ function schedule!(schedule::AudioSchedule, synthesizer, start_time, duration)
     nothing
 end
 
-function schedule!(schedule::AudioSchedule, synthesizer, start_time, envelope::Envelope)
+@inline function schedule!(
+    schedule::AudioSchedule,
+    synthesizer,
+    start_time,
+    envelope::Envelope,
+)
     the_samplerate = samplerate(schedule.sink)
     durations = envelope.durations
     levels = envelope.levels
@@ -326,7 +331,11 @@ function schedule!(schedule::AudioSchedule, synthesizer, start_time, envelope::E
         duration = durations[index]
         schedule!(
             schedule,
-            Map(*, synthesizer, shapes[index](levels[index], levels[index+1], duration)),
+            Map(
+                (@fastmath *),
+                synthesizer,
+                shapes[index](levels[index], levels[index+1], duration),
+            ),
             start_time,
             duration,
         )
@@ -335,7 +344,7 @@ function schedule!(schedule::AudioSchedule, synthesizer, start_time, envelope::E
 end
 export schedule!
 
-show(io::IO, schedule::AudioSchedule) =
+@inline show(io::IO, schedule::AudioSchedule) =
     print(io, "AudioSchedule with triggers at $((keys(schedule.triggers)...,)) seconds")
 
 @noinline function _play(sink, start_time, end_time, ::Tuple{})
@@ -344,10 +353,14 @@ show(io::IO, schedule::AudioSchedule) =
 end
 
 @noinline function _play(sink, start_time, end_time, instruments)
-    states = map(instrument -> instrument.state, instruments)
+    states = map((@inline function (instrument)
+        instrument.state
+    end), instruments)
     source = IteratorSource(
         make_iterator(
-            Map(+, map(instrument -> instrument.iterator, instruments)...),
+            Map((@fastmath +), map((@inline function (instrument)
+                instrument.iterator
+            end), instruments)...),
             samplerate(sink),
         ),
         states,
@@ -355,7 +368,9 @@ end
         samplerate(sink),
     )
     write(sink, source, (end_time - start_time)s)
-    map((instrument, state) -> instrument.state = state, instruments, source.state)
+    map((@inline function (instrument, state)
+        instrument.state = state
+    end), instruments, source.state)
     nothing
 end
 
@@ -364,7 +379,7 @@ end
 
 Play an [`AudioSchedule`](@ref). See the example for [`AudioSchedule`](@ref).
 """
-function play(schedule::AudioSchedule)
+@inline function play(schedule::AudioSchedule)
     if schedule.consumed
         throw(EOFError())
     else
