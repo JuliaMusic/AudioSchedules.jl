@@ -1,9 +1,9 @@
 # Interface
 
 ```@index
-Modules = [AudioSchedulers]
+Modules = [AudioSchedules]
 ```
 
 ```@autodocs
-Modules = [AudioSchedulers]
+Modules = [AudioSchedules]
 ```

@@ -1,4 +1,4 @@
-import AudioSchedulers
+import AudioSchedules
 using Documenter: doctest
 
-doctest(AudioSchedulers)
+doctest(AudioSchedules)

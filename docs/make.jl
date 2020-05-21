@@ -1,9 +1,9 @@
-using AudioSchedulers
+using AudioSchedules
 using Documenter: deploydocs, makedocs
 
 makedocs(
-    sitename = "AudioSchedulers.jl",
-    modules = [AudioSchedulers],
+    sitename = "AudioSchedules.jl",
+    modules = [AudioSchedules],
     doctest = false,
 )
-deploydocs(repo = "github.com/bramtayl/AudioSchedulers.jl.git")
+deploydocs(repo = "github.com/bramtayl/AudioSchedules.jl.git")
