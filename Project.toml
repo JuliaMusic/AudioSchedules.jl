@@ -5,13 +5,11 @@ version = "0.0.1"
 
 [deps]
 DataStructures = "864edb3b-99cc-5e75-8d2d-829cb0a9cfe8"
-PortAudio = "80ea8bcb-4634-5cb3-8ee8-a132660d1d2d"
 SampledSignals = "bd7594eb-a658-542f-9e75-4c4d8908c167"
 
 [compat]
 DataStructures = "0.17"
 SampledSignals = "2"
-PortAudio = "1"
 
 [extras]
 Documenter = "e30172f5-a6a5-5a46-863b-614d45cd2de4"
