@@ -67,7 +67,7 @@ end
 """
     Cycles(frequency)
 
-Cycles from 0 2π to repeat at a `frequency` in hertz.
+Cycles from 0 2π to repeat at a `frequency`.
 """
 struct Cycles <: Synthesizer
     frequency::Float64
@@ -80,9 +80,9 @@ function make_iterator(cycles::Cycles, samplerate)
     CyclesIterator(0, cycles.frequency / samplerate * TAU)
 end
 
-struct IteratorSource{Iterator,State} <: SampleSource
+mutable struct IteratorSource{Iterator,State} <: SampleSource
     iterator::Iterator
-    state_box::RefValue{State}
+    state::State
     nchannels::Int
     samplerate::Float64
 end
@@ -99,38 +99,35 @@ end
 
 @inline function _unsafe_read!(source, buf, frameoffset, framecount, _)
     iterator = source.iterator
-    state_box = source.state_box
-    state = state_box[]
+    state = source.state
     for index in eachindex(buf)
         result = iterate(iterator, state)
         if result === nothing
-            state_box[] = state
+            source.state = state
             return row - 1
         else
             item, state = result
             @inbounds buf[index] = item
         end
     end
-    state_box[] = state
+    source.state = state
     return length(buf)
 end
 
 @inline function _unsafe_read!(source, buf, frameoffset, framecount, ::IsInfinite)
     iterator = source.iterator
-    state_box = source.state_box
-    state = state_box[]
+    state = source.state
     for index in eachindex(buf)
-        item, state = iterate(iterator, state)::Tuple
+        item, state = iterate(iterator, state)
         @inbounds buf[index] = item
     end
-    state_box[] = state
+    source.state = state
     return length(buf)
 end
 
 function IteratorSource(intended_sink, iterator)
     _, state = iterate(iterator)
-    state_box = Ref(state)
-    IteratorSource(iterator, state_box, 1, samplerate(intended_sink))
+    IteratorSource(iterator, state, 1, samplerate(intended_sink))
 end
 
 """
@@ -163,7 +160,7 @@ struct Envelope{Levels,Durations,Shapes}
     levels::Levels
     durations::Durations
     shapes::Shapes
-     function Envelope(
+    function Envelope(
         levels::Levels,
         durations::Durations,
         shapes::Shapes,
@@ -174,17 +171,17 @@ struct Envelope{Levels,Durations,Shapes}
 end
 export Envelope
 
-struct Instrument{Iterator,State}
+mutable struct Instrument{Iterator,State}
     iterator::Iterator
-    state_box::RefValue{State}
-    is_on_box::RefValue{Bool}
+    state::State
+    is_on::Bool
 end
 
-struct AudioScheduler{Sink}
+mutable struct AudioScheduler{Sink}
     orchestra::Dict{Symbol,Instrument}
     triggers::OrderedDict{Float64,Vector{Tuple{Symbol,Bool}}}
     sink::Sink
-    consumed_box::Ref{Bool}
+    consumed::Bool
 end
 
 """
@@ -203,13 +200,18 @@ export Map
 function make_iterator(a_map::Map, samplerate)
     Generator(
         let a_function = a_map.a_function
-            samples -> a_function(samples...)
-        end,
-        zip(map((
-            let samplerate = samplerate
-                 synthesizer -> make_iterator(synthesizer, samplerate)
+            @inline function (samples)
+                a_function(samples...)
             end
-        ), a_map.synthesizers)...),
+        end,
+        zip(map(
+            (
+                let samplerate = samplerate
+                    synthesizer -> make_iterator(synthesizer, samplerate)
+                end
+            ),
+            a_map.synthesizers,
+        )...),
     )
 end
 
@@ -276,7 +278,7 @@ AudioScheduler(sink::Sink) where {Sink} = AudioScheduler{Sink}(
     Dict{Symbol,Instrument}(),
     OrderedDict{Float64,Vector{Tuple{Symbol,Bool}}}(),
     sink,
-    Ref(false),
+    false,
 )
 export AudioScheduler
 
@@ -296,7 +298,7 @@ function schedule!(scheduler::AudioScheduler, synthesizer, start_time, duration)
     stop_time = start_time_unitless + duration / s
     # TODO: don't discard first sample
     _, state = iterate(iterator)
-    scheduler.orchestra[label] = Instrument(iterator, Ref(state), Ref(false))
+    scheduler.orchestra[label] = Instrument(iterator, state, false)
     on_trigger = (label, true)
     if haskey(triggers, start_time_unitless)
         push!(triggers[start_time_unitless], on_trigger)
@@ -312,12 +314,7 @@ function schedule!(scheduler::AudioScheduler, synthesizer, start_time, duration)
     nothing
 end
 
-function schedule!(
-    scheduler::AudioScheduler,
-    synthesizer,
-    start_time,
-    envelope::Envelope,
-)
+function schedule!(scheduler::AudioScheduler, synthesizer, start_time, envelope::Envelope)
     the_samplerate = samplerate(scheduler.sink)
     durations = envelope.durations
     levels = envelope.levels
@@ -344,18 +341,18 @@ show(io::IO, scheduler::AudioScheduler) =
 end
 
 @noinline function _play(sink, start_time, end_time, instruments)
-    state_boxes = map(instrument -> instrument.state_box, instruments)
-    state_box = Ref(map(getindex, state_boxes))
-    iterator = make_iterator(
-        Map(+, map(instrument -> instrument.iterator, instruments)...),
-        samplerate(sink)
+    states = map(instrument -> instrument.state, instruments)
+    source = IteratorSource(
+        make_iterator(
+            Map(+, map(instrument -> instrument.iterator, instruments)...),
+            samplerate(sink),
+        ),
+        states,
+        1,
+        samplerate(sink),
     )
-    write(
-        sink,
-        IteratorSource(iterator, state_box, 1, samplerate(sink)),
-        (end_time - start_time)s,
-    )
-    map(setindex!, state_boxes, state_box[])
+    write(sink, source, (end_time - start_time)s)
+    map((instrument, state) -> instrument.state = state, instruments, source.state)
     nothing
 end
 
@@ -365,8 +362,7 @@ end
 Play an [`AudioScheduler`](@ref). See the example for [`AudioScheduler`](@ref).
 """
 function play(scheduler::AudioScheduler)
-    consumed_box = scheduler.consumed_box
-    if consumed_box[]
+    if scheduler.consumed
         throw(EOFError())
     else
         start_time = 0.0
@@ -377,18 +373,15 @@ function play(scheduler::AudioScheduler)
                 scheduler.sink,
                 start_time,
                 end_time,
-                ((
-                    instrument for
-                    instrument in values(orchestra) if instrument.is_on_box[]
-                )...,),
+                ((instrument for instrument in values(orchestra) if instrument.is_on)...,),
             )
             for (label, is_on) in trigger_list
-                orchestra[label].is_on_box[] = is_on
+                orchestra[label].is_on = is_on
             end
             start_time = end_time
         end
+        scheduler.consumed = true
     end
-    consumed_box[] = true
     return nothing
 end
 export play
