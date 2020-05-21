@@ -95,7 +95,7 @@ end
 @inline samplerate(source::IteratorSource) = source.samplerate
 
 @inline function unsafe_read!(source::IteratorSource, buf::Matrix, frameoffset, framecount)
-    _unsafe_read!(source, buf, frameoffset, framecount, IteratorSize(source))
+    _unsafe_read!(source, buf, frameoffset, framecount, IteratorSize(source.iterator))
 end
 
 @inline function _unsafe_read!(source, buf, frameoffset, framecount, _)
@@ -196,7 +196,6 @@ struct Map{AFunction,Synthesizers}
     Map(a_function::AFunction, synthesizers...) where {AFunction} =
         new{AFunction,typeof(synthesizers)}(a_function, synthesizers)
 end
-export Map
 
 @inline function make_iterator(a_map::Map, samplerate)
     Generator(
@@ -213,10 +212,6 @@ export Map
             end
         ), a_map.synthesizers)...),
     )
-end
-
-@inline function make_iterator(a_map::Map{<:Any,Tuple{<:Any}}, samplerate)
-    Generator(a_map.a_function, make_iterator(a_map.synthesizers[1], samplerate))
 end
 
 """
