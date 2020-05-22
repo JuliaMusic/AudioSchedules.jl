@@ -414,12 +414,10 @@ Play an [`AudioSchedule`](@ref). See the example for [`AudioSchedule`](@ref).
         throw(EOFError())
     else
         sink = a_schedule.sink
-        ingredients = map(
-            let time = Ref(0.0),
-                orchestra = a_schedule.orchestra,
-                sink = sink
 
-                @inline function ((end_time, trigger_list),)
+        ingredients = let time = Ref(0.0), orchestra = a_schedule.orchestra, sink = sink
+            [
+                begin
                     chord, state_boxes = conduct(
                         sink,
                         ((
@@ -434,11 +432,9 @@ Play an [`AudioSchedule`](@ref). See the example for [`AudioSchedule`](@ref).
                     delta = end_time - a_time
                     time[] = end_time
                     chord, state_boxes, delta
-                end
-            end,
-            collect(pairs(a_schedule.triggers)),
-        )
-        chord, state_boxes, delta = ingredients[1]
+                end for (end_time, trigger_list) in pairs(a_schedule.triggers)
+            ]
+        end
         foreach((@noinline function ((chord, state_boxes, delta),)
             chord.state = map(getindex, state_boxes)
             write(sink, chord, (delta)s)
