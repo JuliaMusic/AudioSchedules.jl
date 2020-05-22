@@ -1,23 +1,34 @@
-using AudioSchedules: AudioSchedule, schedule!, play, InfiniteMap, Cycles, Line, Envelope, restart!
+using AudioSchedules:
+    AudioSchedule, Cycles, Envelope, InfiniteMap, Line, play, restart!, schedule!
 using PortAudio: PortAudioStream
-using Unitful: s, Hz
+using Unitful: Hz, s
 import JSON
 
 function make_envelope(duration)
-  Envelope((0, 0.1, 0.1, 0), (0.05s, duration - 0.1s, 0.05s), (Line, Line, Line))
+    Envelope((0, 0.1, 0.1, 0), (0.05s, duration - 0.1s, 0.05s), (Line, Line, Line))
 end
 
 function justly!(schedule, song, key, seconds_per_beat)
-  clock = 0.0s
-  for chord in JSON.parse(song)
-    notes = chord["notes"]
-    new_key = notes[1]
-    key = key * new_key["numerator"] / new_key["denominator"] * 2 ^ new_key["octave"]
-    for note in notes[2:end]
-      schedule!(schedule, InfiniteMap(sin, Cycles((key * note["numerator"] / note["denominator"] * 2 ^ note["octave"]))), clock, make_envelope(note["beats"] * seconds_per_beat))
+    clock = 0.0s
+    for chord in JSON.parse(song)
+        notes = chord["notes"]
+        new_key = notes[1]
+        key = key * new_key["numerator"] / new_key["denominator"] * 2^new_key["octave"]
+        for note in notes[2:end]
+            schedule!(
+                schedule,
+                InfiniteMap(
+                    sin,
+                    Cycles((
+                        key * note["numerator"] / note["denominator"] * 2^note["octave"]
+                    )),
+                ),
+                clock,
+                make_envelope(note["beats"] * seconds_per_beat),
+            )
+        end
+        clock = clock + new_key["beats"]s
     end
-    clock = clock + new_key["beats"]s
-  end
 end
 
 song = """
