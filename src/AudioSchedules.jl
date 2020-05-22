@@ -8,6 +8,56 @@ import SampledSignals: samplerate, nchannels, unsafe_read!
 using SampledSignals: Hz, s, SampleSource
 const TAU = 2 * pi
 
+mutable struct IteratorSource{Iterator,State} <: SampleSource
+    iterator::Iterator
+    state::State
+    nchannels::Int
+    samplerate::Float64
+end
+
+@inline eltype(::IteratorSource) = Float64
+
+@inline nchannels(source::IteratorSource) = source.nchannels
+
+@inline samplerate(source::IteratorSource) = source.samplerate
+
+@inline function unsafe_read!(source::IteratorSource, buf::Matrix, frameoffset, framecount)
+    _unsafe_read!(source, buf, frameoffset, framecount, IteratorSize(source.iterator))
+end
+
+@inline function _unsafe_read!(source, buf, frameoffset, framecount, _)
+    iterator = source.iterator
+    state = source.state
+    for index in eachindex(buf)
+        result = iterate(iterator, state)
+        if result === nothing
+            source.state = state
+            return row - 1
+        else
+            item, state = result
+            @inbounds buf[index] = item
+        end
+    end
+    source.state = state
+    return length(buf)
+end
+
+@inline function _unsafe_read!(source, buf, frameoffset, framecount, ::IsInfinite)
+    iterator = source.iterator
+    state = source.state
+    for index in eachindex(buf)
+        item, state = iterate(iterator, state)
+        @inbounds buf[index] = item
+    end
+    source.state = state
+    return length(buf)
+end
+
+@inline function IteratorSource(intended_sink, iterator)
+    _, state = iterate(iterator)
+    IteratorSource(iterator, state, 1, samplerate(intended_sink))
+end
+
 """
     abstract type Synthesizer
 
@@ -15,6 +65,61 @@ Synthesizers need only support [`make_iterator`](@ref).
 """
 abstract type Synthesizer end
 export Synthesizer
+
+"""
+    make_iterator(synthesizer, samplerate)
+
+Return an iterator that will the play the `synthesizer` at a given `samplerate`
+"""
+@inline make_iterator(synthesizer, samplerate) = synthesizer
+export make_iterator
+
+struct InfiniteMapIterator{AFunction,Iterators}
+    a_function::AFunction
+    iterators::Iterators
+end
+
+IteratorSize(::Type{<:InfiniteMapIterator}) = IsInfinite
+
+@inline function iterate_no_nothing(something, state...)
+    result = iterate(something, state...)
+    if result === nothing
+        error("Unexpected end of iterator")
+    end
+    result::Tuple{Any,Any}
+end
+
+@inline function iterate(something::InfiniteMapIterator, states...)
+    items_states = map(iterate_no_nothing, something.iterators, states...)
+    something.a_function(map(first, items_states)...), map(last, items_states)
+end
+
+"""
+    InfiniteMap(a_function, synthesizers...)
+
+Map `a_function` over `synthesizers`, assuming that none of the `synthesizers` will end
+early.
+"""
+struct InfiniteMap{AFunction,Synthesizers} <: Synthesizer
+    a_function::AFunction
+    synthesizers::Synthesizers
+    InfiniteMap(a_function::AFunction, synthesizers...) where {AFunction} =
+        new{AFunction,typeof(synthesizers)}(a_function, synthesizers)
+end
+export InfiniteMap
+
+@inline function make_iterator(a_map::InfiniteMap, samplerate)
+    InfiniteMapIterator(
+        a_map.a_function,
+        map((
+            let samplerate = samplerate
+                @inline function (synthesizer)
+                    make_iterator(synthesizer, samplerate)
+                end
+            end
+        ), a_map.synthesizers),
+    )
+end
 
 struct LineIterator
     start::Float64
@@ -81,56 +186,6 @@ export Cycles
     CyclesIterator(0, cycles.frequency / samplerate * TAU)
 end
 
-mutable struct IteratorSource{Iterator,State} <: SampleSource
-    iterator::Iterator
-    state::State
-    nchannels::Int
-    samplerate::Float64
-end
-
-@inline eltype(::IteratorSource) = Float64
-
-@inline nchannels(source::IteratorSource) = source.nchannels
-
-@inline samplerate(source::IteratorSource) = source.samplerate
-
-@inline function unsafe_read!(source::IteratorSource, buf::Matrix, frameoffset, framecount)
-    _unsafe_read!(source, buf, frameoffset, framecount, IteratorSize(source.iterator))
-end
-
-@inline function _unsafe_read!(source, buf, frameoffset, framecount, _)
-    iterator = source.iterator
-    state = source.state
-    for index in eachindex(buf)
-        result = iterate(iterator, state)
-        if result === nothing
-            source.state = state
-            return row - 1
-        else
-            item, state = result
-            @inbounds buf[index] = item
-        end
-    end
-    source.state = state
-    return length(buf)
-end
-
-@inline function _unsafe_read!(source, buf, frameoffset, framecount, ::IsInfinite)
-    iterator = source.iterator
-    state = source.state
-    for index in eachindex(buf)
-        item, state = iterate(iterator, state)
-        @inbounds buf[index] = item
-    end
-    source.state = state
-    return length(buf)
-end
-
-@inline function IteratorSource(intended_sink, iterator)
-    _, state = iterate(iterator)
-    IteratorSource(iterator, state, 1, samplerate(intended_sink))
-end
-
 """
     Envelope(levels, durations, shapes)
 
@@ -174,7 +229,7 @@ export Envelope
 
 mutable struct Instrument{Iterator,State}
     iterator::Iterator
-    state::State
+    state_box::Ref{State}
     is_on::Bool
 end
 
@@ -184,58 +239,6 @@ mutable struct AudioSchedule{Sink}
     sink::Sink
     consumed::Bool
 end
-
-struct InfiniteMapIterator{AFunction,Iterators}
-    a_function::AFunction
-    iterators::Iterators
-end
-
-IteratorSize(::Type{<:InfiniteMapIterator}) = IsInfinite
-
-@inline function iterate_no_nothing(something, state...)
-    result = iterate(something, state...)
-    if result === nothing
-        error("Unexpected end of iterator")
-    end
-    result::Tuple{Any, Any}
-end
-
-@inline function iterate(something::InfiniteMapIterator, states...)
-    items_states = map(iterate_no_nothing, something.iterators, states...)
-    something.a_function(map(first, items_states)...), map(last, items_states)
-end
-
-"""
-    InfiniteMap(a_function, synthesizers...)
-
-Map `a_function` over `synthesizers`, assuming that none of the `synthesizers` will end
-early.
-"""
-struct InfiniteMap{AFunction, Synthesizers}
-    a_function::AFunction
-    synthesizers::Synthesizers
-    InfiniteMap(a_function::AFunction, synthesizers...) where {AFunction} =
-        new{AFunction, typeof(synthesizers)}(a_function, synthesizers)
-end
-export InfiniteMap
-
-@inline function make_iterator(a_map::InfiniteMap, samplerate)
-    InfiniteMapIterator(a_map.a_function, map((
-        let samplerate = samplerate
-            @inline function (synthesizer)
-                make_iterator(synthesizer, samplerate)
-            end
-        end
-    ), a_map.synthesizers))
-end
-
-"""
-    make_iterator(synthesizer, samplerate)
-
-Return an iterator that will the `synthesizer` at a given `samplerate`
-"""
-@inline make_iterator(synthesizer, samplerate) = synthesizer
-export make_iterator
 
 """
     AudioSchedule(sink)
@@ -251,7 +254,7 @@ julia> using PortAudio: PortAudioStream
 
 julia> stream = PortAudioStream(samplerate = 44100);
 
-julia> schedule = AudioSchedule(stream.sink)
+julia> a_schedule = AudioSchedule(stream.sink)
 AudioSchedule with triggers at () seconds
 ```
 
@@ -261,33 +264,34 @@ in seconds, or use an [`Envelope`](@ref).
 ```jldoctest schedule
 julia> envelope = Envelope((0, 0.25, 0), (0.05s, 0.95s), (Line, Line));
 
-julia> schedule!(schedule, InfiniteMap(sin, Cycles(440Hz)), 0s, envelope)
+julia> schedule!(a_schedule, InfiniteMap(sin, Cycles(440Hz)), 0s, envelope)
 
-julia> schedule!(schedule, InfiniteMap(sin, Cycles(440Hz)), 1s, envelope)
+julia> schedule!(a_schedule, InfiniteMap(sin, Cycles(440Hz)), 1s, envelope)
 
-julia> schedule!(schedule, InfiniteMap(sin, Cycles(550Hz)), 1s, envelope)
+julia> schedule!(a_schedule, InfiniteMap(sin, Cycles(550Hz)), 1s, envelope)
 
-julia> schedule
-AudioSchedule with triggers at (0.0, 1.0, 2.0, 3.0, 4.0) seconds
+julia> a_schedule
+AudioSchedule with triggers at (0.0, 0.05, 1.0, 1.05, 2.0) seconds
 ```
 
 Then, you can play it with [`play`](@ref).
 
 ```jldoctest schedule
-julia> play(schedule)
+julia> play(a_schedule)
 ```
 
 You can only play a schedule once. If you would like to play it again, you must explicitly
-[`restart!`](@ref) it.
+[`restart!`](@ref) it. The sound quality will be better the second time round to due to
+less compile time.
 
 ```jldoctest schedule
-julia> play(schedule)
+julia> play(a_schedule)
 ERROR: EOFError: read end of file
 [...]
 
-julia> restart!(schedule)
+julia> restart!(a_schedule)
 
-julia> play(schedule)
+julia> play(a_schedule)
 
 julia> close(stream)
 ```
@@ -308,15 +312,15 @@ lasting for `duration`. You can also pass an [`Envelope`](@ref) as a duration. S
 example for [`AudioSchedule`](@ref). Note: the schedule will discard the first sample in
 the iterator during scheduling.
 """
-@inline function schedule!(schedule::AudioSchedule, synthesizer, start_time, duration)
+@inline function schedule!(a_schedule::AudioSchedule, synthesizer, start_time, duration)
     start_time_unitless = start_time / s
-    iterator = make_iterator(synthesizer, samplerate(schedule.sink))
-    triggers = schedule.triggers
+    iterator = make_iterator(synthesizer, samplerate(a_schedule.sink))
+    triggers = a_schedule.triggers
     label = gensym("instrument")
     stop_time = start_time_unitless + duration / s
     # TODO: don't discard first sample
     _, state = iterate(iterator)
-    schedule.orchestra[label] = Instrument(iterator, state, false)
+    a_schedule.orchestra[label] = Instrument(iterator, Ref(state), false)
     on_trigger = (label, true)
     if haskey(triggers, start_time_unitless)
         push!(triggers[start_time_unitless], on_trigger)
@@ -333,34 +337,34 @@ the iterator during scheduling.
 end
 
 """
-    restart!(schedule::AudioSchedule)
+    restart!(a_schedule::AudioSchedule)
 
 Restart a schedule.
 """
-function restart!(schedule::AudioSchedule)
-    for instrument in values(schedule.orchestra)
+function restart!(a_schedule::AudioSchedule)
+    for instrument in values(a_schedule.orchestra)
         _, state = iterate(instrument.iterator)
-        instrument.state = state
+        instrument.state_box[] = state
     end
-    schedule.consumed = false
+    a_schedule.consumed = false
     nothing
 end
 export restart!
 
 @inline function schedule!(
-    schedule::AudioSchedule,
+    a_schedule::AudioSchedule,
     synthesizer,
     start_time,
     envelope::Envelope,
 )
-    the_samplerate = samplerate(schedule.sink)
+    the_samplerate = samplerate(a_schedule.sink)
     durations = envelope.durations
     levels = envelope.levels
     shapes = envelope.shapes
     for index = 1:length(durations)
         duration = durations[index]
         schedule!(
-            schedule,
+            a_schedule,
             InfiniteMap(
                 *,
                 synthesizer,
@@ -374,61 +378,73 @@ export restart!
 end
 export schedule!
 
-@inline show(io::IO, schedule::AudioSchedule) =
-    print(io, "AudioSchedule with triggers at $((keys(schedule.triggers)...,)) seconds")
+@inline show(io::IO, a_schedule::AudioSchedule) =
+    print(io, "AudioSchedule with triggers at $((keys(a_schedule.triggers)...,)) seconds")
 
-@noinline function _play(sink, start_time, end_time, ::Tuple{})
-    write(sink, IteratorSource(sink, repeated(0.0)), (end_time - start_time)s)
-    nothing
+@noinline function conduct(sink, ::Tuple{})
+    IteratorSource(repeated(0.0), (), 1, samplerate(sink)), ()
 end
 
-@noinline function _play(sink, start_time, end_time, instruments)
-    states = map((@inline function (instrument)
-        instrument.state
+@noinline function conduct(sink, instruments)
+    state_boxes = map((@inline function (instrument)
+        instrument.state_box
     end), instruments)
-    source = IteratorSource(
+    IteratorSource(
         make_iterator(
             InfiniteMap(+, map((@inline function (instrument)
                 instrument.iterator
             end), instruments)...),
             samplerate(sink),
         ),
-        states,
+        # pass dummy states to make room for real states later
+        map(getindex, state_boxes),
         1,
         samplerate(sink),
-    )
-    write(sink, source, (end_time - start_time)s)
-    map((@inline function (instrument, state)
-        instrument.state = state
-    end), instruments, source.state)
-    nothing
+    ),
+    state_boxes
 end
 
 """
-    play(schedule::AudioSchedule)
+    play(a_schedule::AudioSchedule)
 
 Play an [`AudioSchedule`](@ref). See the example for [`AudioSchedule`](@ref).
 """
-@inline function play(schedule::AudioSchedule)
-    if schedule.consumed
+@inline function play(a_schedule::AudioSchedule)
+    if a_schedule.consumed
         throw(EOFError())
     else
-        start_time = 0.0
-        triggers = schedule.triggers
-        orchestra = schedule.orchestra
-        for (end_time, trigger_list) in pairs(triggers)
-            _play(
-                schedule.sink,
-                start_time,
-                end_time,
-                ((instrument for instrument in values(orchestra) if instrument.is_on)...,),
-            )
-            for (label, is_on) in trigger_list
-                orchestra[label].is_on = is_on
-            end
-            start_time = end_time
-        end
-        schedule.consumed = true
+        sink = a_schedule.sink
+        ingredients = map(
+            let time = Ref(0.0),
+                orchestra = a_schedule.orchestra,
+                sink = sink
+
+                @inline function ((end_time, trigger_list),)
+                    chord, state_boxes = conduct(
+                        sink,
+                        ((
+                            instrument for
+                            instrument in values(orchestra) if instrument.is_on
+                        )...,),
+                    )
+                    for (label, is_on) in trigger_list
+                        orchestra[label].is_on = is_on
+                    end
+                    a_time = time[]
+                    delta = end_time - a_time
+                    time[] = end_time
+                    chord, state_boxes, delta
+                end
+            end,
+            collect(pairs(a_schedule.triggers)),
+        )
+        chord, state_boxes, delta = ingredients[1]
+        foreach((@noinline function ((chord, state_boxes, delta),)
+            chord.state = map(getindex, state_boxes)
+            write(sink, chord, (delta)s)
+            map(setindex!, state_boxes, chord.state)
+        end), ingredients)
+        a_schedule.consumed = true
     end
     return nothing
 end
