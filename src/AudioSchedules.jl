@@ -414,7 +414,6 @@ Play an [`AudioSchedule`](@ref). See the example for [`AudioSchedule`](@ref).
         throw(EOFError())
     else
         sink = a_schedule.sink
-
         ingredients = let time = Ref(0.0), orchestra = a_schedule.orchestra, sink = sink
             [
                 begin
@@ -428,8 +427,7 @@ Play an [`AudioSchedule`](@ref). See the example for [`AudioSchedule`](@ref).
                     for (label, is_on) in trigger_list
                         orchestra[label].is_on = is_on
                     end
-                    a_time = time[]
-                    delta = end_time - a_time
+                    delta = end_time - time[]
                     time[] = end_time
                     chord, state_boxes, delta
                 end for (end_time, trigger_list) in pairs(a_schedule.triggers)
