@@ -259,13 +259,13 @@ Add a synthesizer to the schedule with [`schedule!`](@ref). You can schedule for
 in seconds, or use an [`Envelope`](@ref).
 
 ```jldoctest schedule
-julia> envelope = Envelope((0, 0.25, 0), (1s, 1s), (Line, Line));
+julia> envelope = Envelope((0, 0.25, 0), (0.05s, 0.95s), (Line, Line));
 
 julia> schedule!(schedule, InfiniteMap(sin, Cycles(440Hz)), 0s, envelope)
 
-julia> schedule!(schedule, InfiniteMap(sin, Cycles(440Hz)), 2s, envelope)
+julia> schedule!(schedule, InfiniteMap(sin, Cycles(440Hz)), 1s, envelope)
 
-julia> schedule!(schedule, InfiniteMap(sin, Cycles(550Hz)), 2s, envelope)
+julia> schedule!(schedule, InfiniteMap(sin, Cycles(550Hz)), 1s, envelope)
 
 julia> schedule
 AudioSchedule with triggers at (0.0, 1.0, 2.0, 3.0, 4.0) seconds
