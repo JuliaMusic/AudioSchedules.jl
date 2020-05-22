@@ -26,7 +26,7 @@ end
 @inline eltype(::Type{LineIterator}) = Float64
 
 @inline function iterate(line::LineIterator, state = line.start)
-    state, @fastmath state + line.plus
+    state, state + line.plus
 end
 
 """
@@ -58,9 +58,9 @@ end
 @inline eltype(::Type{CyclesIterator}) = Float64
 
 @inline function iterate(ring::CyclesIterator, state = ring.start) where {Element}
-    @fastmath next_state = state + ring.plus
+    next_state = state + ring.plus
     if next_state >= TAU
-        @fastmath next_state = next_state - TAU
+        next_state = next_state - TAU
     end
     state, next_state
 end
@@ -185,33 +185,48 @@ mutable struct AudioSchedule{Sink}
     consumed::Bool
 end
 
-"""
-    Map(a_function, synthesizers)
-
-Map `a_function` over audio `synthesizers`.
-"""
-struct Map{AFunction,Synthesizers}
+struct InfiniteMapIterator{AFunction,Iterators}
     a_function::AFunction
-    synthesizers::Synthesizers
-    Map(a_function::AFunction, synthesizers...) where {AFunction} =
-        new{AFunction,typeof(synthesizers)}(a_function, synthesizers)
+    iterators::Iterators
 end
 
-@inline function make_iterator(a_map::Map, samplerate)
-    Generator(
-        let a_function = a_map.a_function
-            @inline function (samples)
-                a_function(samples...)
+IteratorSize(::Type{<:InfiniteMapIterator}) = IsInfinite
+
+@inline function iterate_no_nothing(something, state...)
+    result = iterate(something, state...)
+    if result === nothing
+        error("Unexpected end of iterator")
+    end
+    result::Tuple{Any, Any}
+end
+
+@inline function iterate(something::InfiniteMapIterator, states...)
+    items_states = map(iterate_no_nothing, something.iterators, states...)
+    something.a_function(map(first, items_states)...), map(last, items_states)
+end
+
+"""
+    InfiniteMap(a_function, synthesizers...)
+
+Map `a_function` over `synthesizers`, assuming that none of the `synthesizers` will end
+early.
+"""
+struct InfiniteMap{AFunction, Synthesizers}
+    a_function::AFunction
+    synthesizers::Synthesizers
+    InfiniteMap(a_function::AFunction, synthesizers...) where {AFunction} =
+        new{AFunction, typeof(synthesizers)}(a_function, synthesizers)
+end
+export InfiniteMap
+
+@inline function make_iterator(a_map::InfiniteMap, samplerate)
+    InfiniteMapIterator(a_map.a_function, map((
+        let samplerate = samplerate
+            @inline function (synthesizer)
+                make_iterator(synthesizer, samplerate)
             end
-        end,
-        zip(map((
-            let samplerate = samplerate
-                @inline function (synthesizer)
-                    make_iterator(synthesizer, samplerate)
-                end
-            end
-        ), a_map.synthesizers)...),
-    )
+        end
+    ), a_map.synthesizers))
 end
 
 """
@@ -246,11 +261,11 @@ in seconds, or use an [`Envelope`](@ref).
 ```jldoctest schedule
 julia> envelope = Envelope((0, 0.25, 0), (1s, 1s), (Line, Line));
 
-julia> schedule!(schedule, Map((@fastmath sin), Cycles(440Hz)), 0s, envelope)
+julia> schedule!(schedule, InfiniteMap(sin, Cycles(440Hz)), 0s, envelope)
 
-julia> schedule!(schedule, Map((@fastmath sin), Cycles(440Hz)), 2s, envelope)
+julia> schedule!(schedule, InfiniteMap(sin, Cycles(440Hz)), 2s, envelope)
 
-julia> schedule!(schedule, Map((@fastmath sin), Cycles(550Hz)), 2s, envelope)
+julia> schedule!(schedule, InfiniteMap(sin, Cycles(550Hz)), 2s, envelope)
 
 julia> schedule
 AudioSchedule with triggers at (0.0, 1.0, 2.0, 3.0, 4.0) seconds
@@ -346,8 +361,8 @@ export restart!
         duration = durations[index]
         schedule!(
             schedule,
-            Map(
-                (@fastmath *),
+            InfiniteMap(
+                *,
                 synthesizer,
                 shapes[index](levels[index], levels[index+1], duration),
             ),
@@ -373,7 +388,7 @@ end
     end), instruments)
     source = IteratorSource(
         make_iterator(
-            Map((@fastmath +), map((@inline function (instrument)
+            InfiniteMap(+, map((@inline function (instrument)
                 instrument.iterator
             end), instruments)...),
             samplerate(sink),
