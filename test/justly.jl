@@ -5,7 +5,7 @@ using Unitful: Hz, s
 import JSON
 
 function make_envelope(duration)
-    Envelope((0, 0.1, 0.1, 0), (0.05s, duration - 0.1s, 0.05s), (Line, Line, Line))
+    Envelope((0, 0.1, 0.1, 0), (0.1s, duration - 0.2s, 0.1s), (Line, Line, Line))
 end
 
 function justly!(schedule, song, key, seconds_per_beat)
@@ -121,9 +121,9 @@ song = """
 """
 
 stream = PortAudioStream(samplerate = 44100)
-schedule = AudioSchedule(stream.sink)
-justly!(schedule, song, 440Hz, 1.0s)
-play(schedule)
-restart!(schedule)
+a_schedule = AudioSchedule(stream.sink)
+justly!(a_schedule, song, 440Hz, 1.0s)
+play(a_schedule)
+restart!(a_schedule)
 play(schedule)
 close(stream)
