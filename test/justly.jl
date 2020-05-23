@@ -1,5 +1,3 @@
-using AudioSchedules:
-    AudioSchedule, Cycles, Envelope, InfiniteMap, Line, play, restart!, schedule!
 using PortAudio: PortAudioStream
 using Unitful: Hz, s
 import JSON
