@@ -37,7 +37,7 @@ end
             source.state = state
             return index - 1
         else
-            item, state = result
+            item::Float64, state = result
             @inbounds buf[index] = item
         end
     end
@@ -53,43 +53,45 @@ end
     result::Tuple{Any,Any}
 end
 
-struct FlattenedIterator{OuterIterator}
+struct ScheduleIterator{OuterIterator}
     outer_iterator::OuterIterator
 end
 
-@inline IteratorSize(::Type{<:FlattenedIterator}) = HasLength()
+@inline IteratorSize(::Type{<:ScheduleIterator}) = HasLength()
 
-@inline function length(flattened::FlattenedIterator)
+@inline function length(flattened::ScheduleIterator)
     sum(Generator((@inline function ((_, _, samples),)
         samples
     end), flattened.outer_iterator))
 end
 
 # TODO: think about this
-@inline IteratorEltype(::Type{<:FlattenedIterator}) = EltypeUnknown()
+@inline IteratorEltype(::Type{<:ScheduleIterator}) = EltypeUnknown()
 
-function iterate(flattened::FlattenedIterator)
-    outer_iterate(flattened)
+@inline function iterate(flattened::ScheduleIterator)
+    new_iterator(flattened)
 end
-function iterate(flattened::FlattenedIterator, state)
-    inner_iterate(flattened, state)
-end
-
-function outer_iterate(flattened, state...)
-    outer_result = iterate(flattened.outer_iterator, state...)
-    if outer_result === nothing
-        nothing
-    else
-        (inner_iterator, state_boxes, has_left), outer_state = outer_result
-        inner_state = map(getindex, state_boxes)
-        inner_iterate(
-            flattened,
-            (outer_state, inner_iterator, has_left, state_boxes, inner_state),
-        )
-    end
+@noinline function iterate(flattened::ScheduleIterator, complex_state)
+    same_iterator(flattened, complex_state)
 end
 
-function inner_iterate(
+@inline function new_iterator(flattened, outer_states...)
+     make_new_iterator(flattened, iterate(flattened.outer_iterator, outer_states...))
+end
+
+@noinline function make_new_iterator(flattened, ::Nothing)
+    nothing
+end
+
+@noinline function make_new_iterator(flattened, ((inner_iterator, state_boxes, has_left), outer_state))
+    inner_state = map(getindex, state_boxes)
+    same_iterator(
+        flattened,
+        (outer_state, inner_iterator, has_left, state_boxes, inner_state),
+    )
+end
+
+@inline function same_iterator(
     flattened,
     (outer_state, inner_iterator, has_left, state_boxes, inner_state),
 )
@@ -99,7 +101,7 @@ function inner_iterate(
         return inner_item, (outer_state, inner_iterator, has_left, state_boxes, inner_state)
     else
         map(setindex!, state_boxes, inner_state)
-        outer_iterate(flattened, outer_state)
+        new_iterator(flattened, outer_state)
     end
 end
 
@@ -477,7 +479,7 @@ Play an [`AudioSchedule`](@ref). See the example for [`AudioSchedule`](@ref).
                 ]
             end
         _, first_state_boxes, _ = first(outer_iterator)
-        flattened = FlattenedIterator(outer_iterator)
+        flattened = ScheduleIterator(outer_iterator)
         write(sink, IteratorSource(flattened, the_samplerate), length(flattened))
         a_schedule.consumed = true
     end
