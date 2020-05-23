@@ -483,5 +483,6 @@ Play an [`AudioSchedule`](@ref). See the example for [`AudioSchedule`](@ref).
     end
     return nothing
 end
+export play
 
 end
