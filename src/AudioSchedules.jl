@@ -314,17 +314,12 @@ julia> using SampledSignals: unsafe_read!
 
 julia> a_plan = Plan(a_schedule, SAMPLE_RATE);
 
-julia> buf = Vector{Float64}(undef, 5);
+julia> buf = Vector{Float64}(undef, 4);
 
-julia> unsafe_read!(a_plan, buf, 0, 5);
+julia> unsafe_read!(a_plan, buf, 0, 4);
 
-julia> buf
-5-element Array{Float64,1}:
- 0.0
- 0.015661707203391145
- 0.03126113849585192
- 0.046737013242244295
- 0.06202853913480799
+julia> buf == [0.0, 7.102984600764591e-6, 2.835612782188846e-5, 6.359232681199096e-5]
+true
 ```
 
 You can find the number of samples in a `Plan` with length.
