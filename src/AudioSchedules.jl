@@ -278,14 +278,12 @@ end
 """
     AudioSchedule()
 
-Create a `AudioSchedule`.
+Create an `AudioSchedule`.
 
 ```jldoctest schedule
 julia> using AudioSchedules
 
 julia> using Unitful: s, Hz
-
-julia> const SAMPLE_RATE = 44100Hz;
 
 julia> a_schedule = AudioSchedule()
 AudioSchedule with triggers at () seconds
@@ -312,7 +310,7 @@ Then, you can create a `SampledSource` from the schedule using [`Plan`](@ref).
 ```jldoctest schedule
 julia> using SampledSignals: unsafe_read!
 
-julia> a_plan = Plan(a_schedule, SAMPLE_RATE);
+julia> a_plan = Plan(a_schedule, 44100Hz);
 
 julia> buf = Vector{Float64}(undef, 4);
 
@@ -333,14 +331,13 @@ AudioSchedule() = AudioSchedule(ORCHESTRA(), TRIGGERS())
 export AudioSchedule
 
 """
-    schedule!(schedule::AudioSchedule, synthesizer, start_time, duration)
+    schedule!(schedule::AudioSchedule, synthesizer::Synthesizer, start_time, duration)
 
 Schedule an audio synthesizer to be added to the `schedule`, starting at `start_time` and
 lasting for `duration`. You can also pass an [`Envelope`](@ref) as a duration. See the
-example for [`AudioSchedule`](@ref). Note: the schedule will discard the first sample in
-the iterator during scheduling.
+example for [`AudioSchedule`](@ref).
 """
-function schedule!(a_schedule::AudioSchedule, synthesizer, start_time, duration)
+function schedule!(a_schedule::AudioSchedule, synthesizer::Synthesizer, start_time, duration)
     start_time_unitless = start_time / s
     triggers = a_schedule.triggers
     label = gensym("instrument")
@@ -361,7 +358,7 @@ function schedule!(a_schedule::AudioSchedule, synthesizer, start_time, duration)
     nothing
 end
 
-function schedule!(a_schedule::AudioSchedule, synthesizer, start_time, envelope::Envelope)
+function schedule!(a_schedule::AudioSchedule, synthesizer::Synthesizer, start_time, envelope::Envelope)
     durations = envelope.durations
     levels = envelope.levels
     shapes = envelope.shapes
