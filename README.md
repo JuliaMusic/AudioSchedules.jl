@@ -21,4 +21,5 @@ samples in your plan using `length`. Finally, you can `write` your source to any
 SampledSink. See [SampledSignals](https://github.com/JuliaAudio/SampledSignals.jl) for
 more information.
 
-See the [documentation](https://bramtayl.github.io/AudioSchedules.jl/dev) for more details.
+See the [documentation](https://bramtayl.github.io/AudioSchedules.jl/dev) for more details
+and an example.
