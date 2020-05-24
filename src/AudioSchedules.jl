@@ -34,12 +34,29 @@ function length(source::ScheduleIterator)
     sum((samples for (_, _, samples) in source.outer_iterator))
 end
 
+# pull out all the type stable parts from the super unstable one below
+
 @noinline function inner_fill!(inner_iterator, inner_state, buf, a_range)
     for index in a_range
         item::Float64, inner_state = iterate(inner_iterator, inner_state)
         @inbounds buf[index] = item
     end
     inner_state
+end
+
+@noinline function end_iterator!(state_boxes, inner_state)
+    map(setindex!, state_boxes, inner_state)
+    nothing
+end
+
+@noinline function switch_iterator!(source, buf, frameoffset, framecount, outer_result::Nothing, until)
+    until
+end
+@noinline function switch_iterator!(source, buf, frameoffset, framecount, outer_result::Tuple{Tuple{Any, Any, Any}, Any}, until)
+    (source.inner_iterator, state_boxes, source.has_left), source.outer_state = outer_result
+    source.inner_state = map(getindex, state_boxes)
+    source.state_boxes = state_boxes
+    unsafe_read!(source, buf, frameoffset, framecount, from = until + 1)
 end
 
 function unsafe_read!(source::ScheduleIterator, buf, frameoffset, framecount; from = 1)
@@ -54,25 +71,10 @@ function unsafe_read!(source::ScheduleIterator, buf, frameoffset, framecount; fr
     else
         until = from + has_left - 1
         inner_state = inner_fill!(inner_iterator, inner_state, buf, from:until)
-        end_iterator(source.state_boxes, inner_state)
+        end_iterator!(source.state_boxes, inner_state)
         outer_result = iterate(source.outer_iterator, source.outer_state)
-        switch_iterator(source, buf, frameoffset, framecount, outer_result, until)
+        switch_iterator!(source, buf, frameoffset, framecount, outer_result, until)
     end
-end
-
-@noinline function end_iterator(state_boxes, inner_state)
-    map(setindex!, state_boxes, inner_state)
-    nothing
-end
-
-@noinline function switch_iterator(source, buf, frameoffset, framecount, outer_result::Nothing, until)
-    until
-end
-@noinline function switch_iterator(source, buf, frameoffset, framecount, outer_result::Tuple{Tuple{Any, Any, Any}, Any}, until)
-    (source.inner_iterator, state_boxes, source.has_left), source.outer_state = outer_result
-    source.inner_state = map(getindex, state_boxes)
-    source.state_boxes = state_boxes
-    unsafe_read!(source, buf, frameoffset, framecount, from = until + 1)
 end
 
 """
