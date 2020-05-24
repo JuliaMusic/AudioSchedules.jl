@@ -32,7 +32,7 @@ function Plan(
         item,
         inner_state,
         has_left,
-        the_sample_rate
+        the_sample_rate,
     )
 end
 
@@ -422,7 +422,7 @@ function Plan(a_schedule::AudioSchedule, the_sample_rate)
                 together, samples
             end for (end_time, trigger_list) in pairs(a_schedule.triggers)
         ],
-        the_sample_rate_unitless
+        the_sample_rate_unitless,
     )
 end
 export Plan
