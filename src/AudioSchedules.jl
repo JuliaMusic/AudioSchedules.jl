@@ -2,76 +2,91 @@ module AudioSchedules
 
 import Base: eltype, iterate, IteratorEltype, IteratorSize, length, read!, setindex!, show
 using Base: Generator, EltypeUnknown, IsInfinite, HasEltype, HasLength, RefValue
-using Base.Iterators: repeated
+using Base.Iterators: repeated, Stateful
 using DataStructures: OrderedDict
 import SampledSignals: samplerate, nchannels, unsafe_read!
 using SampledSignals: Hz, s, SampleSource
 const TAU = 2 * pi
 
-mutable struct Plan{InnerIterator, StateBoxes} <: SampleSource
-    outer_iterator::Vector{Tuple{InnerIterator, StateBoxes, Int}}
+mutable struct Plan{InnerIterator} <: SampleSource
+    outer_iterator::Vector{Tuple{InnerIterator,Int}}
     outer_state::Int
     inner_iterator::InnerIterator
-    state_boxes::StateBoxes
-    inner_state::Tuple
+    item::Float64
+    inner_state::Any
     has_left::Int
-    samplerate::Int
+    the_sample_rate::Int
 end
 
-function Plan(outer_iterator::Vector{Tuple{InnerIterator, StateBoxes, Int}}, samplerate) where {InnerIterator, StateBoxes}
+function Plan(
+    outer_iterator::Vector{Tuple{InnerIterator,Int}},
+    the_sample_rate,
+) where {InnerIterator}
     # TODO: save first item
-    (inner_iterator, state_boxes, has_left), outer_state = iterate(outer_iterator)
-    Plan{InnerIterator, StateBoxes}(outer_iterator, outer_state, inner_iterator, state_boxes, map(getindex, state_boxes), has_left, samplerate)
+    (inner_iterator, has_left), outer_state = iterate(outer_iterator)
+    item, inner_state = iterate(inner_iterator)
+    Plan{InnerIterator}(
+        outer_iterator,
+        outer_state,
+        inner_iterator,
+        item,
+        inner_state,
+        has_left,
+        the_sample_rate
+    )
 end
 
 eltype(source::Plan) = Float64
 
 nchannels(source::Plan) = 1
 
-samplerate(source::Plan) = source.samplerate
+samplerate(source::Plan) = source.the_sample_rate
 
 function length(source::Plan)
-    sum((samples for (_, _, samples) in source.outer_iterator))
+    sum((samples for (_, samples) in source.outer_iterator))
 end
 
 # pull out all the type stable parts from the super unstable one below
 
-@noinline function inner_fill!(inner_iterator, inner_state, buf, a_range)
+@noinline function inner_fill!(inner_iterator, item, inner_state, buf, a_range)
     for index in a_range
-        item::Float64, inner_state = iterate(inner_iterator, inner_state)
         @inbounds buf[index] = item
+        item::Float64, inner_state = iterate(inner_iterator, inner_state)
     end
-    inner_state
+    item, inner_state
 end
 
-@noinline function end_iterator!(state_boxes, inner_state)
-    map(setindex!, state_boxes, inner_state)
-    nothing
-end
-
-@noinline function switch_iterator!(source, buf, frameoffset, framecount, outer_result::Nothing, until)
+@noinline function switch_iterator!(source, buf, frameoffset, framecount, ::Nothing, until)
     until
 end
-@noinline function switch_iterator!(source, buf, frameoffset, framecount, outer_result::Tuple{Tuple{Any, Any, Any}, Any}, until)
-    (source.inner_iterator, state_boxes, source.has_left), source.outer_state = outer_result
-    source.inner_state = map(getindex, state_boxes)
-    source.state_boxes = state_boxes
+@noinline function switch_iterator!(
+    source,
+    buf,
+    frameoffset,
+    framecount,
+    outer_result::Tuple{Tuple{Any,Any},Any},
+    until,
+)
+    (inner_iterator, source.has_left), source.outer_state = outer_result
+    source.item, source.inner_state = iterate(inner_iterator)
+    source.inner_iterator = inner_iterator
     unsafe_read!(source, buf, frameoffset, framecount, from = until + 1)
 end
 
 function unsafe_read!(source::Plan, buf, frameoffset, framecount; from = 1)
     has_left = source.has_left
     inner_iterator = source.inner_iterator
+    item = source.item
     inner_state = source.inner_state
     empties = framecount - from + 1
     if (has_left >= empties)
         source.has_left = has_left - empties
-        source.inner_state = inner_fill!(inner_iterator, inner_state, buf, from:framecount)
+        source.item, source.inner_state =
+            inner_fill!(inner_iterator, item, inner_state, buf, from:framecount)
         framecount
     else
         until = from + has_left - 1
-        inner_state = inner_fill!(inner_iterator, inner_state, buf, from:until)
-        end_iterator!(source.state_boxes, inner_state)
+        inner_fill!(inner_iterator, item, inner_state, buf, from:until)
         outer_result = iterate(source.outer_iterator, source.outer_state)
         switch_iterator!(source, buf, frameoffset, framecount, outer_result, until)
     end
@@ -86,11 +101,11 @@ abstract type Synthesizer end
 export Synthesizer
 
 """
-    make_iterator(synthesizer, samplerate)
+    make_iterator(synthesizer, the_sample_rate)
 
-Return an iterator that will the play the `synthesizer` at a given `samplerate`
+Return an iterator that will the play the `synthesizer` at `the_sample_rate`
 """
-make_iterator(synthesizer, samplerate) = synthesizer
+make_iterator(synthesizer, the_sample_rate) = synthesizer
 export make_iterator
 
 struct InfiniteMapIterator{AFunction,Iterators}
@@ -121,16 +136,19 @@ struct InfiniteMap{AFunction,Synthesizers} <: Synthesizer
 end
 export InfiniteMap
 
-function make_iterator(a_map::InfiniteMap, samplerate)
+function make_iterator(a_map::InfiniteMap, the_sample_rate)
     InfiniteMapIterator(
         a_map.a_function,
-        map((
-            let samplerate = samplerate
-                @inline function (synthesizer)
-                    make_iterator(synthesizer, samplerate)
+        map(
+            (
+                let the_sample_rate = the_sample_rate
+                    @inline function (synthesizer)
+                        make_iterator(synthesizer, the_sample_rate)
+                    end
                 end
-            end
-        ), a_map.synthesizers),
+            ),
+            a_map.synthesizers,
+        ),
     )
 end
 
@@ -163,9 +181,12 @@ struct Line <: Synthesizer
 end
 export Line
 
-function make_iterator(line::Line, samplerate)
+function make_iterator(line::Line, the_sample_rate)
     start_value = line.start_value
-    LineIterator(start_value, (line.end_value - start_value) / (samplerate * line.duration))
+    LineIterator(
+        start_value,
+        (line.end_value - start_value) / (the_sample_rate * line.duration),
+    )
 end
 
 struct CyclesIterator
@@ -199,8 +220,8 @@ end
 
 export Cycles
 
-function make_iterator(cycles::Cycles, samplerate)
-    CyclesIterator(0, cycles.frequency / samplerate * TAU)
+function make_iterator(cycles::Cycles, the_sample_rate)
+    CyclesIterator(0, cycles.frequency / the_sample_rate * TAU)
 end
 
 """
@@ -244,23 +265,18 @@ struct Envelope{Levels,Durations,Shapes}
 end
 export Envelope
 
-mutable struct Instrument{Iterator,State}
-    iterator::Iterator
-    state_box::Ref{State}
-    is_on::Bool
-end
+const ORCHESTRA = Dict{Symbol,Synthesizer}
+const TRIGGERS = OrderedDict{Float64,Vector{Tuple{Symbol,Bool}}}
 
 mutable struct AudioSchedule
-    orchestra::Dict{Symbol,Instrument}
-    triggers::OrderedDict{Float64,Vector{Tuple{Symbol,Bool}}}
-    samplerate::Int
-    consumed::Bool
+    orchestra::ORCHESTRA
+    triggers::TRIGGERS
 end
 
 # TODO: consume schedules or plans?
 # TODO: remove sample rate dependency for schedules?
 """
-    AudioSchedule(a_sample_rate)
+    AudioSchedule()
 
 Create a `AudioSchedule`.
 
@@ -269,13 +285,9 @@ julia> using AudioSchedules
 
 julia> using Unitful: s, Hz
 
-julia> using PortAudio: PortAudioStream
+julia> const SAMPLE_RATE = 44100Hz;
 
-julia> const SAMPLE_RATE = 44100;
-
-julia> stream = PortAudioStream(samplerate = SAMPLE_RATE);
-
-julia> a_schedule = AudioSchedule(SAMPLE_RATE)
+julia> a_schedule = AudioSchedule()
 AudioSchedule with triggers at () seconds
 ```
 
@@ -295,39 +307,34 @@ julia> a_schedule
 AudioSchedule with triggers at (0.0, 0.05, 1.0, 1.05, 2.0) seconds
 ```
 
-Then, you can play it with [`plan`](@ref). Note you find the number of samples in a plan
-using `length`.
+Then, you can create a `SampledSource` from the schedule using [`Plan`](@ref).
 
 ```jldoctest schedule
-julia> a_plan = Plan(a_schedule);
+julia> using SampledSignals: unsafe_read!
 
-julia> write(stream.sink, a_plan, length(a_plan));
+julia> a_plan = Plan(a_schedule, SAMPLE_RATE);
+
+julia> buf = Vector{Float64}(undef, 5);
+
+julia> unsafe_read!(a_plan, buf, 0, 5);
+
+julia> buf
+5-element Array{Float64,1}:
+ 0.0
+ 0.015661707203391145
+ 0.03126113849585192
+ 0.046737013242244295
+ 0.06202853913480799
 ```
 
-You can only play a schedule once. If you would like to play it again, you must explicitly
-[`restart!`](@ref) it. The sound quality will be better the second time round to due to
-less compile time.
+You can find the number of samples in a `Plan` with length.
 
 ```jldoctest schedule
-julia> Plan(a_schedule)
-ERROR: EOFError: read end of file
-[...]
-
-julia> restart!(a_schedule)
-
-julia> a_plan = Plan(a_schedule);
-
-julia> write(stream.sink, a_plan, length(a_plan));
-
-julia> close(stream)
+julia> length(a_plan)
+88200
 ```
 """
-AudioSchedule(a_sample_rate) = AudioSchedule(
-    Dict{Symbol,Instrument}(),
-    OrderedDict{Float64,Vector{Tuple{Symbol,Bool}}}(),
-    a_sample_rate,
-    false,
-)
+AudioSchedule() = AudioSchedule(ORCHESTRA(), TRIGGERS())
 export AudioSchedule
 
 """
@@ -340,42 +347,24 @@ the iterator during scheduling.
 """
 function schedule!(a_schedule::AudioSchedule, synthesizer, start_time, duration)
     start_time_unitless = start_time / s
-    iterator = make_iterator(synthesizer, a_schedule.samplerate)
     triggers = a_schedule.triggers
     label = gensym("instrument")
     stop_time = start_time_unitless + duration / s
-    # TODO: don't discard first sample
-    _, state = iterate(iterator)
-    a_schedule.orchestra[label] = Instrument(iterator, Ref(state), false)
-    on_trigger = (label, true)
+    a_schedule.orchestra[label] = synthesizer
+    start_trigger = label, true
     if haskey(triggers, start_time_unitless)
-        push!(triggers[start_time_unitless], on_trigger)
+        push!(triggers[start_time_unitless], start_trigger)
     else
-        triggers[start_time_unitless] = [on_trigger]
+        triggers[start_time_unitless] = [start_trigger]
     end
-    off_trigger = (label, false)
+    stop_trigger = label, false
     if haskey(triggers, stop_time)
-        push!(triggers[stop_time], off_trigger)
+        push!(triggers[stop_time], stop_trigger)
     else
-        triggers[stop_time] = [off_trigger]
+        triggers[stop_time] = [stop_trigger]
     end
     nothing
 end
-
-"""
-    restart!(a_schedule::AudioSchedule)
-
-Restart a schedule.
-"""
-function restart!(a_schedule::AudioSchedule)
-    for instrument in values(a_schedule.orchestra)
-        _, state = iterate(instrument.iterator)
-        instrument.state_box[] = state
-    end
-    a_schedule.consumed = false
-    nothing
-end
-export restart!
 
 function schedule!(a_schedule::AudioSchedule, synthesizer, start_time, envelope::Envelope)
     durations = envelope.durations
@@ -401,17 +390,12 @@ export schedule!
 show(io::IO, a_schedule::AudioSchedule) =
     print(io, "AudioSchedule with triggers at $((keys(a_schedule.triggers)...,)) seconds")
 
-function conduct(a_sample_rate, ::Tuple{})
-    repeated(0.0), ()
+function conduct(::Tuple{})
+    repeated(0.0)
 end
 
-function conduct(a_sample_rate, instruments)
-    state_boxes = map(instrument -> instrument.state_box, instruments)
-    make_iterator(
-        InfiniteMap(+, map(instrument -> instrument.iterator, instruments)...),
-        a_sample_rate,
-    ),
-    state_boxes
+function conduct(iterators)
+    InfiniteMapIterator(+, iterators)
 end
 
 """
@@ -419,31 +403,29 @@ end
 
 Return a `SampledSource` for the schedule.
 """
-function Plan(a_schedule::AudioSchedule)
-    if a_schedule.consumed
-        throw(EOFError())
-    else
-        a_schedule.consumed = true
-        the_sample_rate = a_schedule.samplerate
-        time = Ref(0.0)
-        orchestra = a_schedule.orchestra
-        Plan([
+function Plan(a_schedule::AudioSchedule, the_sample_rate)
+    the_sample_rate_unitless = the_sample_rate / Hz
+    time = Ref(0.0)
+    stateful_orchestra = Dict(
+        (label, (Stateful(make_iterator(synthesizer, the_sample_rate_unitless)), false)) for (label, synthesizer) in pairs(a_schedule.orchestra)
+    )
+    Plan(
+        [
             begin
-                iterator, state_boxes = conduct(
-                    the_sample_rate,
-                    ((
-                        instrument for instrument in values(orchestra) if instrument.is_on
-                    )...,),
-                )
                 for (label, is_on) in trigger_list
-                    orchestra[label].is_on = is_on
+                    iterator, _ = stateful_orchestra[label]
+                    stateful_orchestra[label] = iterator, is_on
                 end
-                samples = round(Int, (end_time - time[]) * the_sample_rate)
+                iterator = conduct(((
+                    iterator for (iterator, is_on) in values(stateful_orchestra) if is_on
+                )...,))
+                samples = round(Int, (end_time - time[]) * the_sample_rate_unitless)
                 time[] = end_time
-                iterator, state_boxes, samples
+                iterator, samples
             end for (end_time, trigger_list) in pairs(a_schedule.triggers)
-        ], the_sample_rate)
-    end
+        ],
+        the_sample_rate_unitless
+    )
 end
 export Plan
 
