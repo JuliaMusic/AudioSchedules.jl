@@ -370,6 +370,7 @@ function schedule!(a_schedule::AudioSchedule, synthesizer, start_time, envelope:
     durations = envelope.durations
     levels = envelope.levels
     shapes = envelope.shapes
+    index = 1
     for index = 1:length(durations)
         duration = durations[index]
         schedule!(
@@ -409,19 +410,21 @@ function Plan(a_schedule::AudioSchedule, the_sample_rate)
     stateful_orchestra = Dict(
         (label, (Stateful(make_iterator(synthesizer, the_sample_rate_unitless)), false)) for (label, synthesizer) in pairs(a_schedule.orchestra)
     )
+    all_pairs = collect(pairs(a_schedule.triggers))
+    end_time, trigger_list = all_pairs[2]
     Plan(
         [
             begin
+                together = conduct(((
+                    iterator for (iterator, is_on) in values(stateful_orchestra) if is_on
+                )...,))
                 for (label, is_on) in trigger_list
                     iterator, _ = stateful_orchestra[label]
                     stateful_orchestra[label] = iterator, is_on
                 end
-                iterator = conduct(((
-                    iterator for (iterator, is_on) in values(stateful_orchestra) if is_on
-                )...,))
                 samples = round(Int, (end_time - time[]) * the_sample_rate_unitless)
                 time[] = end_time
-                iterator, samples
+                together, samples
             end for (end_time, trigger_list) in pairs(a_schedule.triggers)
         ],
         the_sample_rate_unitless

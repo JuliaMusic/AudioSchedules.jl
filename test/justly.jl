@@ -122,6 +122,5 @@ song = """
 stream = PortAudioStream(samplerate = 44100)
 a_schedule = AudioSchedule()
 justly!(a_schedule, song, 440Hz, 1.0s)
-a_schedule.triggers
 a_plan = Plan(a_schedule, 44100Hz)
 write(stream.sink, a_plan, length(a_plan))
