@@ -15,10 +15,10 @@ Then add synthesizers to the schedule using `schedule!`. You can add synthesizer
 time for any duration. In addition, you can schedule synthesizers to be played using an
 `Envelope`.
 
-When you are done, convert your schedule to a `SampledSource` using `Plan`. This is the
+When you are done, convert your schedule to a `SampleSource` using `Plan`. This is the
 first and only time you will need to specify a sample rate. You can find the number of
 samples in your plan using `length`. Finally, you can `write` your source to any
-SampledSink. See [SampledSignals](https://github.com/JuliaAudio/SampledSignals.jl) for
+SampleSink. See [SampledSignals](https://github.com/JuliaAudio/SampledSignals.jl) for
 more information.
 
 See the [documentation](https://bramtayl.github.io/AudioSchedules.jl/dev) for more details
