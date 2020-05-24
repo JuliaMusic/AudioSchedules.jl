@@ -245,7 +245,7 @@ will create an envelope with three segments:
 ```
 Line(0.0, 1.0, 0.05 s)
 Line(1.0, 1.0, 0.9 s)
-Line(s1.0, 0.0, 0.05 s)
+Line(1.0, 0.0, 0.05 s)
 ```
 
 See the example for [`AudioSchedule`](@ref).
