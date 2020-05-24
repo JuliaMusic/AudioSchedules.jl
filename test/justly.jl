@@ -1,6 +1,7 @@
 using PortAudio: PortAudioStream
 using Unitful: Hz, s
 import JSON
+using ProfileView: @profview
 
 function make_envelope(duration)
     Envelope((0, 0.1, 0.1, 0), (0.1s, duration - 0.2s, 0.1s), (Line, Line, Line))
@@ -123,5 +124,5 @@ a_schedule = AudioSchedule(stream.sink)
 justly!(a_schedule, song, 440Hz, 1.0s)
 play(a_schedule)
 restart!(a_schedule)
-play(a_schedule)
+@profview play(a_schedule)
 close(stream)
