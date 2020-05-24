@@ -102,12 +102,8 @@ IteratorSize(::Type{<:InfiniteMapIterator}) = IsInfinite
 
 IteratorEltype(::Type{<:InfiniteMapIterator}) = EltypeUnknown
 
-@inline function iterate_no_nothing(iterator, state...)
-    iterate(iterator, state...)::Tuple{Any, Any}
-end
-
 @inline function iterate(something::InfiniteMapIterator, states...)
-    items_states = map(iterate_no_nothing, something.iterators, states...)
+    items_states = map(iterate, something.iterators, states...)
     something.a_function(map(first, items_states)...), map(last, items_states)
 end
 
