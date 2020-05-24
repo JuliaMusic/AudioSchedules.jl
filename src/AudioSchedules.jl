@@ -427,7 +427,7 @@ function Plan(a_schedule::AudioSchedule)
         the_sample_rate = a_schedule.samplerate
         time = Ref(0.0)
         orchestra = a_schedule.orchestra
-        outer_iterator = [
+        Plan([
             begin
                 iterator, state_boxes = conduct(
                     the_sample_rate,
@@ -442,8 +442,7 @@ function Plan(a_schedule::AudioSchedule)
                 time[] = end_time
                 iterator, state_boxes, samples
             end for (end_time, trigger_list) in pairs(a_schedule.triggers)
-        ]
-        Plan(outer_iterator, the_sample_rate)
+        ], the_sample_rate)
     end
 end
 export Plan
