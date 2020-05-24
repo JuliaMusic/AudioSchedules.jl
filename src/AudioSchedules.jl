@@ -311,20 +311,24 @@ Then, you can create a `SampledSource` from the schedule using [`Plan`](@ref).
 julia> using SampledSignals: unsafe_read!
 
 julia> a_plan = Plan(a_schedule, 44100Hz);
-
-julia> buf = Vector{Float64}(undef, 4);
-
-julia> unsafe_read!(a_plan, buf, 0, 4);
-
-julia> buf == [0.0, 7.102984600764591e-6, 2.835612782188846e-5, 6.359232681199096e-5]
-true
 ```
 
 You can find the number of samples in a `Plan` with length.
 
 ```jldoctest schedule
-julia> length(a_plan)
+julia> the_length = length(a_plan)
 88200
+```
+
+You can use `Plan` as a source for samples.
+
+```jldoctest schedule
+julia> buf = Vector{Float64}(undef, the_length);
+
+julia> unsafe_read!(a_plan, buf, 0, the_length);
+
+julia> buf[1:4] == [0.0, 7.102984600764591e-6, 2.835612782188846e-5, 6.359232681199096e-5]
+true
 ```
 """
 AudioSchedule() = AudioSchedule(ORCHESTRA(), TRIGGERS())
