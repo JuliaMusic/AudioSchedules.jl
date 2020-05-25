@@ -122,5 +122,13 @@ song = """
 stream = PortAudioStream(samplerate = 44100)
 a_schedule = AudioSchedule()
 justly!(a_schedule, song, 440Hz, 1.0s)
+
 a_plan = Plan(a_schedule, 44100Hz)
 write(stream.sink, a_plan, length(a_plan))
+
+a_plan = Plan(a_schedule, 44100Hz)
+the_length = length(a_plan)
+buf = Vector{Float64}(undef, the_length)
+@profview unsafe_read!(a_plan, buf, 0, the_length)
+
+close(stream)

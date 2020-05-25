@@ -1,19 +1,18 @@
 module AudioSchedules
 
 import Base: eltype, iterate, IteratorEltype, IteratorSize, length, read!, setindex!, show
-using Base: Generator, EltypeUnknown, IsInfinite, HasEltype, HasLength, RefValue
+using Base: Generator, EltypeUnknown, IsInfinite, HasEltype, HasLength, RefValue, tail
 using Base.Iterators: repeated, Stateful
 using DataStructures: OrderedDict
 import SampledSignals: samplerate, nchannels, unsafe_read!
 using SampledSignals: Hz, s, SampleSource
 const TAU = 2 * pi
 
-mutable struct Plan{InnerIterator} <: SampleSource
+mutable struct Plan{InnerIterator} <: SampleSource where {InnerIterator<:Stateful}
     outer_iterator::Vector{Tuple{InnerIterator,Int}}
     outer_state::Int
     inner_iterator::InnerIterator
     item::Float64
-    inner_state::Any
     has_left::Int
     the_sample_rate::Int
 end
@@ -24,13 +23,12 @@ function Plan(
 ) where {InnerIterator}
     # TODO: save first item
     (inner_iterator, has_left), outer_state = iterate(outer_iterator)
-    item, inner_state = iterate(inner_iterator)
+    item, _ = iterate(inner_iterator)
     Plan{InnerIterator}(
         outer_iterator,
         outer_state,
         inner_iterator,
         item,
-        inner_state,
         has_left,
         the_sample_rate,
     )
@@ -48,12 +46,12 @@ end
 
 # pull out all the type stable parts from the super unstable one below
 
-@noinline function inner_fill!(inner_iterator, item, inner_state, buf, a_range)
+@noinline function inner_fill!(inner_iterator, item, buf, a_range)
     for index in a_range
         @inbounds buf[index] = item
-        item::Float64, inner_state = iterate(inner_iterator, inner_state)
+        item::Float64, inner_state = iterate(inner_iterator)
     end
-    item, inner_state
+    item
 end
 
 @noinline function switch_iterator!(source, buf, frameoffset, framecount, ::Nothing, until)
@@ -68,25 +66,23 @@ end
     until,
 )
     (inner_iterator, source.has_left), source.outer_state = outer_result
-    source.item, source.inner_state = iterate(inner_iterator)
+    source.item, _ = iterate(inner_iterator)
     source.inner_iterator = inner_iterator
-    unsafe_read!(source, buf, frameoffset, framecount, from = until + 1)
+    unsafe_read!(source, buf, frameoffset, framecount, until + 1)
 end
 
-function unsafe_read!(source::Plan, buf, frameoffset, framecount; from = 1)
+function unsafe_read!(source::Plan, buf, frameoffset, framecount, from = 1)
     has_left = source.has_left
     inner_iterator = source.inner_iterator
     item = source.item
-    inner_state = source.inner_state
     empties = framecount - from + 1
     if (has_left >= empties)
         source.has_left = has_left - empties
-        source.item, source.inner_state =
-            inner_fill!(inner_iterator, item, inner_state, buf, from:framecount)
+        source.item = inner_fill!(inner_iterator, item, buf, from:framecount)
         framecount
     else
         until = from + has_left - 1
-        inner_fill!(inner_iterator, item, inner_state, buf, from:until)
+        inner_fill!(inner_iterator, item, buf, from:until)
         outer_result = iterate(source.outer_iterator, source.outer_state)
         switch_iterator!(source, buf, frameoffset, framecount, outer_result, until)
     end
