@@ -139,16 +139,7 @@ export InfiniteMap
 function make_iterator(a_map::InfiniteMap, the_sample_rate)
     InfiniteMapIterator(
         a_map.a_function,
-        map(
-            (
-                let the_sample_rate = the_sample_rate
-                    @inline function (synthesizer)
-                        make_iterator(synthesizer, the_sample_rate)
-                    end
-                end
-            ),
-            a_map.synthesizers,
-        ),
+        map(synthesizer -> make_iterator(synthesizer, the_sample_rate), a_map.synthesizers),
     )
 end
 
@@ -273,8 +264,6 @@ mutable struct AudioSchedule
     triggers::TRIGGERS
 end
 
-# TODO: consume schedules or plans?
-# TODO: remove sample rate dependency for schedules?
 """
     AudioSchedule()
 
@@ -341,7 +330,12 @@ Schedule an audio synthesizer to be added to the `schedule`, starting at `start_
 lasting for `duration`. You can also pass an [`Envelope`](@ref) as a duration. See the
 example for [`AudioSchedule`](@ref).
 """
-function schedule!(a_schedule::AudioSchedule, synthesizer::Synthesizer, start_time, duration)
+function schedule!(
+    a_schedule::AudioSchedule,
+    synthesizer::Synthesizer,
+    start_time,
+    duration,
+)
     start_time_unitless = start_time / s
     triggers = a_schedule.triggers
     label = gensym("instrument")
@@ -362,7 +356,12 @@ function schedule!(a_schedule::AudioSchedule, synthesizer::Synthesizer, start_ti
     nothing
 end
 
-function schedule!(a_schedule::AudioSchedule, synthesizer::Synthesizer, start_time, envelope::Envelope)
+function schedule!(
+    a_schedule::AudioSchedule,
+    synthesizer::Synthesizer,
+    start_time,
+    envelope::Envelope,
+)
     durations = envelope.durations
     levels = envelope.levels
     shapes = envelope.shapes
@@ -406,8 +405,6 @@ function Plan(a_schedule::AudioSchedule, the_sample_rate)
     stateful_orchestra = Dict(
         (label, (Stateful(make_iterator(synthesizer, the_sample_rate_unitless)), false)) for (label, synthesizer) in pairs(a_schedule.orchestra)
     )
-    all_pairs = collect(pairs(a_schedule.triggers))
-    end_time, trigger_list = all_pairs[2]
     Plan(
         [
             begin
