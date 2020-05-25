@@ -2,6 +2,7 @@ using PortAudio: PortAudioStream
 using Unitful: Hz, s
 import JSON
 using ProfileView: @profview
+using InteractiveUtils: @code_warntype
 
 function make_envelope(duration)
     Envelope((0, 0.1, 0.1, 0), (0.1s, duration - 0.2s, 0.1s), (Line, Line, Line))

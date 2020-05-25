@@ -8,6 +8,10 @@ import SampledSignals: samplerate, nchannels, unsafe_read!
 using SampledSignals: Hz, s, SampleSource
 const TAU = 2 * pi
 
+@inline function iterate_no_nothing(something, state...)
+    iterate(something, state...)::Tuple{Any, Any}
+end
+
 mutable struct Plan{InnerIterator} <: SampleSource where {InnerIterator<:Stateful}
     outer_iterator::Vector{Tuple{InnerIterator,Int}}
     outer_state::Int
@@ -49,7 +53,7 @@ end
 @noinline function inner_fill!(inner_iterator, item, buf, a_range)
     for index in a_range
         @inbounds buf[index] = item
-        item::Float64, inner_state = iterate(inner_iterator)
+        item::Float64, inner_state = iterate_no_nothing(inner_iterator)
     end
     item
 end
@@ -66,7 +70,7 @@ end
     until,
 )
     (inner_iterator, source.has_left), source.outer_state = outer_result
-    source.item, _ = iterate(inner_iterator)
+    source.item, _ = iterate_no_nothing(inner_iterator)
     source.inner_iterator = inner_iterator
     unsafe_read!(source, buf, frameoffset, framecount, until + 1)
 end
@@ -114,7 +118,7 @@ IteratorSize(::Type{<:InfiniteMapIterator}) = IsInfinite
 IteratorEltype(::Type{<:InfiniteMapIterator}) = EltypeUnknown
 
 @inline function iterate(something::InfiniteMapIterator, states...)
-    items_states = map(iterate, something.iterators, states...)
+    items_states = map(iterate_no_nothing, something.iterators, states...)
     something.a_function(map(first, items_states)...), map(last, items_states)
 end
 
