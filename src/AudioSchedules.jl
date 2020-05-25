@@ -3,7 +3,7 @@ module AudioSchedules
 import Base: eltype, iterate, IteratorEltype, IteratorSize, length, read!, setindex!, show
 using Base: Generator, EltypeUnknown, IsInfinite, HasEltype, HasLength, RefValue, tail
 using Base.Iterators: repeated, Stateful
-using DataStructures: OrderedDict
+using DataStructures: SortedDict
 import SampledSignals: samplerate, nchannels, unsafe_read!
 using SampledSignals: Hz, s, SampleSource
 const TAU = 2 * pi
@@ -253,7 +253,7 @@ end
 export Envelope
 
 const ORCHESTRA = Dict{Symbol,Synthesizer}
-const TRIGGERS = OrderedDict{Float64,Vector{Tuple{Symbol,Bool}}}
+const TRIGGERS = SortedDict{Float64,Vector{Tuple{Symbol,Bool}}}
 
 mutable struct AudioSchedule
     orchestra::ORCHESTRA

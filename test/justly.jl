@@ -63,6 +63,118 @@ song = """
   {
     "notes": [
       {
+        "numerator": 5,
+        "denominator": 6,
+        "octave": 0,
+        "beats": 1
+      },
+      {
+        "numerator": 6,
+        "denominator": 5,
+        "octave": 0,
+        "beats": 1
+      },
+      {
+        "numerator": 3,
+        "denominator": 2,
+        "octave": 0,
+        "beats": 1
+      },
+      {
+        "numerator": 2,
+        "denominator": 1,
+        "octave": 0,
+        "beats": 1
+      }
+    ]
+  },
+  {
+    "notes": [
+      {
+        "numerator": 4,
+        "denominator": 5,
+        "octave": 0,
+        "beats": 1
+      },
+      {
+        "numerator": 3,
+        "denominator": 2,
+        "octave": 0,
+        "beats": 1
+      },
+      {
+        "numerator": 1,
+        "denominator": 1,
+        "octave": 1,
+        "beats": 1
+      },
+      {
+        "numerator": 5,
+        "denominator": 4,
+        "octave": 1,
+        "beats": 1
+      }
+    ]
+  },
+  {
+    "notes": [
+      {
+        "numerator": 9,
+        "denominator": 8,
+        "octave": 0,
+        "beats": 1
+      },
+      {
+        "numerator": 5,
+        "denominator": 4,
+        "octave": 0,
+        "beats": 1
+      },
+      {
+        "numerator": 3,
+        "denominator": 2,
+        "octave": 0,
+        "beats": 1
+      },
+      {
+        "numerator": 1,
+        "denominator": 1,
+        "octave": 1,
+        "beats": 1
+      }
+    ]
+  },
+  {
+    "notes": [
+      {
+        "numerator": 2,
+        "denominator": 3,
+        "octave": 1,
+        "beats": 1
+      },
+      {
+        "numerator": 1,
+        "denominator": 1,
+        "octave": 0,
+        "beats": 1
+      },
+      {
+        "numerator": 5,
+        "denominator": 4,
+        "octave": 0,
+        "beats": 1
+      },
+      {
+        "numerator": 3,
+        "denominator": 2,
+        "octave": 0,
+        "beats": 1
+      }
+    ]
+  },
+  {
+    "notes": [
+      {
         "numerator": 2,
         "denominator": 3,
         "octave": 0,
@@ -115,6 +227,338 @@ song = """
         "beats": 1
       }
     ]
+  },
+  {
+    "notes": [
+      {
+        "numerator": 1,
+        "denominator": 1,
+        "octave": 0,
+        "beats": 1
+      },
+      {
+        "numerator": 1,
+        "denominator": 1,
+        "octave": 0,
+        "beats": 1
+      },
+      {
+        "numerator": 5,
+        "denominator": 4,
+        "octave": 0,
+        "beats": 1
+      },
+      {
+        "numerator": 3,
+        "denominator": 2,
+        "octave": 0,
+        "beats": 1
+      },
+      {
+        "numerator": 7,
+        "denominator": 4,
+        "octave": 0,
+        "beats": 1
+      }
+    ]
+  },
+  {
+    "notes": [
+      {
+        "numerator": 2,
+        "denominator": 3,
+        "octave": 0,
+        "beats": 1
+      },
+      {
+        "numerator": 3,
+        "denominator": 2,
+        "octave": 0,
+        "beats": 1
+      },
+      {
+        "numerator": 1,
+        "denominator": 1,
+        "octave": 1,
+        "beats": 1
+      },
+      {
+        "numerator": 5,
+        "denominator": 4,
+        "octave": 1,
+        "beats": 1
+      }
+    ]
+  },
+  {
+    "notes": [
+      {
+        "numerator": 15,
+        "denominator": 8,
+        "octave": 0,
+        "beats": 1
+      },
+      {
+        "numerator": 1,
+        "denominator": 1,
+        "octave": 0,
+        "beats": 1
+      },
+      {
+        "numerator": 6,
+        "denominator": 5,
+        "octave": 0,
+        "beats": 1
+      },
+      {
+        "numerator": 3,
+        "denominator": 2,
+        "octave": 0,
+        "beats": 1
+      }
+    ]
+  },
+  {
+    "notes": [
+      {
+        "numerator": 8,
+        "denominator": 9,
+        "octave": 0,
+        "beats": 1
+      },
+      {
+        "numerator": 6,
+        "denominator": 5,
+        "octave": 0,
+        "beats": 1
+      },
+      {
+        "numerator": 3,
+        "denominator": 2,
+        "octave": 0,
+        "beats": 1
+      },
+      {
+        "numerator": 2,
+        "denominator": 1,
+        "octave": 0,
+        "beats": 1
+      }
+    ]
+  },
+  {
+    "notes": [
+      {
+        "numerator": 8,
+        "denominator": 9,
+        "octave": 0,
+        "beats": 1
+      },
+      {
+        "numerator": 1,
+        "denominator": 1,
+        "octave": 0,
+        "beats": 1
+      },
+      {
+        "numerator": 5,
+        "denominator": 4,
+        "octave": 0,
+        "beats": 1
+      },
+      {
+        "numerator": 3,
+        "denominator": 2,
+        "octave": 0,
+        "beats": 1
+      }
+    ]
+  },
+  {
+    "notes": [
+      {
+        "numerator": 1,
+        "denominator": 1,
+        "octave": 0,
+        "beats": 1
+      },
+      {
+        "numerator": 1,
+        "denominator": 1,
+        "octave": 0,
+        "beats": 1
+      },
+      {
+        "numerator": 5,
+        "denominator": 4,
+        "octave": 0,
+        "beats": 1
+      },
+      {
+        "numerator": 3,
+        "denominator": 2,
+        "octave": 0,
+        "beats": 1
+      },
+      {
+        "numerator": 7,
+        "denominator": 4,
+        "octave": 0,
+        "beats": 1
+      }
+    ]
+  },
+  {
+    "notes": [
+      {
+        "numerator": 2,
+        "denominator": 3,
+        "octave": 0,
+        "beats": 1
+      },
+      {
+        "numerator": 3,
+        "denominator": 2,
+        "octave": 0,
+        "beats": 1
+      },
+      {
+        "numerator": 1,
+        "denominator": 1,
+        "octave": 1,
+        "beats": 1
+      },
+      {
+        "numerator": 5,
+        "denominator": 4,
+        "octave": 1,
+        "beats": 1
+      }
+    ]
+  },
+  {
+    "notes": [
+      {
+        "numerator": 15,
+        "denominator": 8,
+        "octave": 0,
+        "beats": 1
+      },
+      {
+        "numerator": 1,
+        "denominator": 1,
+        "octave": 0,
+        "beats": 1
+      },
+      {
+        "numerator": 6,
+        "denominator": 5,
+        "octave": 0,
+        "beats": 1
+      },
+      {
+        "numerator": 3,
+        "denominator": 2,
+        "octave": 0,
+        "beats": 1
+      }
+    ]
+  },
+  {
+    "notes": [
+      {
+        "numerator": 8,
+        "denominator": 9,
+        "octave": 0,
+        "beats": 1
+      },
+      {
+        "numerator": 1,
+        "denominator": 1,
+        "octave": 0,
+        "beats": 1
+      },
+      {
+        "numerator": 5,
+        "denominator": 4,
+        "octave": 0,
+        "beats": 1
+      },
+      {
+        "numerator": 3,
+        "denominator": 2,
+        "octave": 0,
+        "beats": 1
+      },
+      {
+        "numerator": 7,
+        "denominator": 4,
+        "octave": 0,
+        "beats": 1
+      }
+    ]
+  },
+  {
+    "notes": [
+      {
+        "numerator": 2,
+        "denominator": 3,
+        "octave": 0,
+        "beats": 1
+      },
+      {
+        "numerator": 3,
+        "denominator": 2,
+        "octave": 0,
+        "beats": 1
+      },
+      {
+        "numerator": 7,
+        "denominator": 4,
+        "octave": 0,
+        "beats": 1
+      },
+      {
+        "numerator": 1,
+        "denominator": 1,
+        "octave": 1,
+        "beats": 1
+      },
+      {
+        "numerator": 5,
+        "denominator": 4,
+        "octave": 1,
+        "beats": 1
+      }
+    ]
+  },
+  {
+    "notes": [
+      {
+        "numerator": 2,
+        "denominator": 3,
+        "octave": 1,
+        "beats": 1
+      },
+      {
+        "numerator": 1,
+        "denominator": 1,
+        "octave": 0,
+        "beats": 1
+      },
+      {
+        "numerator": 5,
+        "denominator": 4,
+        "octave": 0,
+        "beats": 1
+      },
+      {
+        "numerator": 3,
+        "denominator": 2,
+        "octave": 0,
+        "beats": 1
+      }
+    ]
   }
 ]
 """
@@ -131,4 +575,11 @@ the_length = length(a_plan)
 buf = Vector{Float64}(undef, the_length)
 @profview unsafe_read!(a_plan, buf, 0, the_length)
 
-close(stream)
+a_schedule = AudioSchedule()
+schedule!(a_schedule, InfiniteMap(x -> 0.1 * sin(x), Cycles(A)), 0 * BEAT, 3 * BEAT)
+schedule!(a_schedule, InfiniteMap(x -> 0.1 * sin(x), Cycles(A * 6/5)), 1 * BEAT, 2 * BEAT)
+schedule!(a_schedule, InfiniteMap(x -> 0.1 * sin(x), Cycles(A * 3/2)), 2 * BEAT, 1 * BEAT)
+a_plan = Plan(a_schedule, SAMPLE_RATE)
+
+write(stream.sink, a_plan, length(a_plan))
+stream = PortAudioStream(samplerate = 44100)
