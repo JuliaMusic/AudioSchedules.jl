@@ -8,8 +8,17 @@ import SampledSignals: samplerate, nchannels, unsafe_read!
 using SampledSignals: Hz, s, SampleSource
 const TAU = 2 * pi
 
-@inline function endless_iterate(something, state...)
-    iterate(something, state...)::Tuple{Any, Any}
+mutable struct InfiniteStateful{Iterator, Item, State}
+    iterator::Iterator
+    item_state::Tuple{Item, State}
+end
+IteratorSize(::Type{<:InfiniteStateful}) = IsInfinite()
+IteratorEltype(::Type{InfiniteStateful{<:Any, Item, <:Any}}) where {Item} = Item
+InfiniteStateful(iterator) = InfiniteStateful(iterator, iterate(iterator))
+function iterate(stateful::InfiniteStateful, state = nothing)
+    last_item, state = stateful.item_state
+    stateful.item_state = iterate(stateful.iterator, state)
+    last_item, nothing
 end
 
 mutable struct Plan{InnerIterator} <: SampleSource where {InnerIterator<:Stateful}
@@ -53,7 +62,7 @@ end
 @noinline function inner_fill!(inner_iterator, item, buf, a_range)
     for index in a_range
         @inbounds buf[index] = item
-        item::Float64, inner_state = endless_iterate(inner_iterator)
+        item::Float64, inner_state = iterate(inner_iterator)
     end
     item
 end
@@ -70,7 +79,7 @@ end
     until,
 )
     (inner_iterator, source.has_left), source.outer_state = outer_result
-    source.item, _ = endless_iterate(inner_iterator)
+    source.item, _ = iterate(inner_iterator)
     source.inner_iterator = inner_iterator
     unsafe_read!(source, buf, frameoffset, framecount, until + 1)
 end
@@ -118,7 +127,7 @@ IteratorSize(::Type{<:InfiniteMapIterator}) = IsInfinite
 IteratorEltype(::Type{<:InfiniteMapIterator}) = EltypeUnknown
 
 @inline function iterate(something::InfiniteMapIterator, states...)
-    items_states = map(endless_iterate, something.iterators, states...)
+    items_states = map(iterate, something.iterators, states...)
     something.a_function(map(first, items_states)...), map(last, items_states)
 end
 
@@ -403,7 +412,7 @@ function Plan(a_schedule::AudioSchedule, the_sample_rate)
     the_sample_rate_unitless = the_sample_rate / Hz
     time = Ref(0.0)
     stateful_orchestra = Dict(
-        (label, (Stateful(make_iterator(synthesizer, the_sample_rate_unitless)), false)) for (label, synthesizer) in pairs(a_schedule.orchestra)
+        (label, (InfiniteStateful(make_iterator(synthesizer, the_sample_rate_unitless)), false)) for (label, synthesizer) in pairs(a_schedule.orchestra)
     )
     Plan(
         [

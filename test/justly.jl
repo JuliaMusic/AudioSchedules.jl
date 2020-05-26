@@ -13,7 +13,7 @@ function justly!(schedule, song, key, seconds_per_beat)
     for chord in JSON.parse(song)
         notes = chord["notes"]
         new_key = notes[1]
-        key = key * new_key["numerator"] / new_key["denominator"] * 2^new_key["octave"]
+        key = key * new_key["numerator"] / new_key["denominator"] * 2.0^new_key["octave"]
         for note in notes[2:end]
             schedule!(
                 schedule,
@@ -34,6 +34,7 @@ end
 song = """
 [
   {
+    "lyrics" : "ever I",
     "notes": [
       {
         "numerator": 1,
@@ -62,6 +63,7 @@ song = """
     ]
   },
   {
+    "lyrics" : "want you",
     "notes": [
       {
         "numerator": 5,
@@ -90,6 +92,7 @@ song = """
     ]
   },
   {
+    "lyrics": "all I have to",
     "notes": [
       {
         "numerator": 4,
@@ -118,6 +121,7 @@ song = """
     ]
   },
   {
+    "lyrics": "do is",
     "notes": [
       {
         "numerator": 9,
@@ -146,6 +150,7 @@ song = """
     ]
   },
   {
+    "lyrics": "dree",
     "notes": [
       {
         "numerator": 2,
@@ -174,6 +179,7 @@ song = """
     ]
   },
   {
+    "lyrics": "ea",
     "notes": [
       {
         "numerator": 2,
@@ -202,6 +208,7 @@ song = """
     ]
   },
   {
+    "lyrics": "ea",
     "notes": [
       {
         "numerator": 3,
@@ -230,6 +237,7 @@ song = """
     ]
   },
   {
+    "lyrics": "eam",
     "notes": [
       {
         "numerator": 1,
@@ -264,6 +272,7 @@ song = """
     ]
   },
   {
+    "lyrics": "I can make you mine",
     "notes": [
       {
         "numerator": 2,
@@ -292,6 +301,7 @@ song = """
     ]
   },
   {
+    "lyrics": "taste your lips of wine",
     "notes": [
       {
         "numerator": 15,
@@ -320,6 +330,7 @@ song = """
     ]
   },
   {
+    "lyrics": "anytime night or",
     "notes": [
       {
         "numerator": 8,
@@ -348,6 +359,7 @@ song = """
     ]
   },
   {
+    "lyrics": "day",
     "notes": [
       {
         "numerator": 8,
@@ -410,6 +422,7 @@ song = """
     ]
   },
   {
+    "lyrics": "Only trouble is",
     "notes": [
       {
         "numerator": 2,
@@ -438,6 +451,7 @@ song = """
     ]
   },
   {
+    "lyrics": "gee whiz",
     "notes": [
       {
         "numerator": 15,
@@ -466,6 +480,7 @@ song = """
     ]
   },
   {
+    "lyrics": "I'm dreamin my life a-",
     "notes": [
       {
         "numerator": 8,
@@ -500,6 +515,7 @@ song = """
     ]
   },
   {
+    "lyrics": "way",
     "notes": [
       {
         "numerator": 2,
