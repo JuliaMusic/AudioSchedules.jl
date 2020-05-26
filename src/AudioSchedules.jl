@@ -126,9 +126,22 @@ IteratorSize(::Type{<:InfiniteMapIterator}) = IsInfinite
 
 IteratorEltype(::Type{<:InfiniteMapIterator}) = EltypeUnknown
 
-@inline function iterate(something::InfiniteMapIterator, states...)
-    items_states = map(iterate, something.iterators, states...)
-    something.a_function(map(first, items_states)...), map(last, items_states)
+@inline _my_first(something, rest...) = something
+@inline my_first(them) = _my_first(them...)
+
+@inline map_unrolled(a_function, them) =
+    a_function(my_first(them)), map_unrolled(a_function, tail(them))...
+@inline map_unrolled(a_function, ::Tuple{}) = ()
+@inline map_unrolled(a_function, tuple_1, tuple_2) =
+    a_function(my_first(tuple_1), my_first(tuple_2)), map_unrolled(a_function, tail(tuple_1), tail(tuple_2))...
+@inline map_unrolled(a_function, ::Tuple{}, ::Tuple{}) = ()
+
+@inline _my_last(first_one, second_one) = second_one
+@inline my_last(pair) = _my_last(pair...)
+
+@inline function iterate(something::InfiniteMapIterator, state...)
+    items_states = map_unrolled(iterate, something.iterators, state...)
+    something.a_function(map_unrolled(my_first, items_states)...), map_unrolled(my_last, items_states)
 end
 
 """
@@ -200,7 +213,7 @@ IteratorEltype(::Type{CyclesIterator}) = HasEltype
 
 eltype(::Type{CyclesIterator}) = Float64
 
-@inline function iterate(ring::CyclesIterator, state = ring.start) where {Element}
+@inline function iterate(ring::CyclesIterator, state = ring.start)
     next_state = state + ring.plus
     if next_state >= TAU
         next_state = next_state - TAU

@@ -2,10 +2,10 @@ using PortAudio: PortAudioStream
 using Unitful: Hz, s
 import JSON
 using ProfileView: @profview
-using InteractiveUtils: @code_warntype
+using Traceur: @trace
 
 function make_envelope(duration)
-    Envelope((0, 0.1, 0.1, 0), (0.1s, duration - 0.2s, 0.1s), (Line, Line, Line))
+    Envelope((0, 0.1, 0), (duration/2, duration/2), (Line, Line))
 end
 
 function justly!(schedule, song, key, seconds_per_beat)
@@ -582,21 +582,14 @@ song = """
 
 stream = PortAudioStream(samplerate = 44100)
 a_schedule = AudioSchedule()
-justly!(a_schedule, song, 440Hz, 1.0s)
+justly!(a_schedule, song, 440Hz, 4.0s)
 
 a_plan = Plan(a_schedule, 44100Hz)
 write(stream.sink, a_plan, length(a_plan))
 
 a_plan = Plan(a_schedule, 44100Hz)
-the_length = length(a_plan)
-buf = Vector{Float64}(undef, the_length)
-@profview unsafe_read!(a_plan, buf, 0, the_length)
+buf = Vector{Float64}(undef, length(a_plan))
+@profview unsafe_read!(a_plan, buf, 0, length(a_plan))
 
-a_schedule = AudioSchedule()
-schedule!(a_schedule, InfiniteMap(x -> 0.1 * sin(x), Cycles(A)), 0 * BEAT, 3 * BEAT)
-schedule!(a_schedule, InfiniteMap(x -> 0.1 * sin(x), Cycles(A * 6/5)), 1 * BEAT, 2 * BEAT)
-schedule!(a_schedule, InfiniteMap(x -> 0.1 * sin(x), Cycles(A * 3/2)), 2 * BEAT, 1 * BEAT)
-a_plan = Plan(a_schedule, SAMPLE_RATE)
-
-write(stream.sink, a_plan, length(a_plan))
-stream = PortAudioStream(samplerate = 44100)
+iterator = a_plan.outer_iterator[2][1]
+@trace iterate(iterator)
