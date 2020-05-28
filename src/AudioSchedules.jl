@@ -2,7 +2,7 @@ module AudioSchedules
 
 import Base: eltype, iterate, IteratorEltype, IteratorSize, length, read!, setindex!, show
 using Base: Generator, EltypeUnknown, IsInfinite, HasEltype, HasLength, RefValue, tail
-using Base.Iterators: repeated, Stateful
+using Base.Iterators: Repeated, repeated, Stateful
 using DataStructures: SortedDict
 import SampledSignals: samplerate, nchannels, unsafe_read!
 using SampledSignals: Hz, s, SampleSource
@@ -19,86 +19,6 @@ function iterate(stateful::StrictStateful, state = nothing)
     last_item, state = stateful.item_state
     stateful.item_state = iterate(stateful.iterator, state)
     last_item, nothing
-end
-
-mutable struct Plan{InnerIterator} <: SampleSource
-    outer_iterator::Vector{Tuple{InnerIterator,Int}}
-    outer_state::Int
-    inner_iterator::InnerIterator
-    item::Float64
-    has_left::Int
-    the_sample_rate::Int
-end
-
-function Plan(
-    outer_iterator::Vector{Tuple{InnerIterator,Int}},
-    the_sample_rate,
-) where {InnerIterator}
-    # TODO: save first item
-    (inner_iterator, has_left), outer_state = iterate(outer_iterator)
-    item, _ = iterate(inner_iterator)
-    Plan{InnerIterator}(
-        outer_iterator,
-        outer_state,
-        inner_iterator,
-        item,
-        has_left,
-        the_sample_rate,
-    )
-end
-
-eltype(source::Plan) = Float64
-
-nchannels(source::Plan) = 1
-
-samplerate(source::Plan) = source.the_sample_rate
-
-function length(source::Plan)
-    sum((samples for (_, samples) in source.outer_iterator))
-end
-
-# pull out all the type stable parts from the super unstable one below
-
-@noinline function inner_fill!(inner_iterator, item, buf, a_range)
-    for index in a_range
-        @inbounds buf[index] = item
-        item, inner_state = iterate(inner_iterator)
-    end
-    item
-end
-
-@noinline function switch_iterator!(source, buf, frameoffset, framecount, ::Nothing, until)
-    until
-end
-@noinline function switch_iterator!(
-    source,
-    buf,
-    frameoffset,
-    framecount,
-    outer_result,
-    until,
-)
-    (inner_iterator, source.has_left), source.outer_state = outer_result
-    source.item, _ = iterate(inner_iterator)
-    source.inner_iterator = inner_iterator
-    unsafe_read!(source, buf, frameoffset, framecount, until + 1)
-end
-
-function unsafe_read!(source::Plan, buf, frameoffset, framecount, from = 1)
-    has_left = source.has_left
-    inner_iterator = source.inner_iterator
-    item = source.item
-    empties = framecount - from + 1
-    if (has_left >= empties)
-        source.has_left = has_left - empties
-        source.item = inner_fill!(inner_iterator, item, buf, from:framecount)
-        framecount
-    else
-        until = from + has_left - 1
-        inner_fill!(inner_iterator, item, buf, from:until)
-        outer_result = iterate(source.outer_iterator, source.outer_state)
-        switch_iterator!(source, buf, frameoffset, framecount, outer_result, until)
-    end
 end
 
 """
@@ -265,7 +185,123 @@ struct Envelope{Levels,Durations,Shapes}
 end
 export Envelope
 
-const ORCHESTRA = Dict{Symbol,Tuple{StrictStateful,Bool}}
+
+mutable struct Plan{InnerIterator} <: SampleSource
+    outer_iterator::Vector{Tuple{InnerIterator,Int}}
+    outer_state::Int
+    inner_iterator::InnerIterator
+    has_left::Int
+    the_sample_rate::Int
+end
+
+const SEGMENT = StrictMapIterator{typeof(*),<:Tuple{StrictStateful,StrictStateful}}
+
+function Plan(
+    outer_iterator::Vector{Tuple{InnerIterator,Int}},
+    the_sample_rate,
+) where {InnerIterator}
+    # TODO: save first item
+    (inner_iterator, has_left), outer_state = iterate(outer_iterator)
+    Plan{InnerIterator}(
+        outer_iterator,
+        outer_state,
+        inner_iterator,
+        has_left,
+        the_sample_rate,
+    )
+end
+
+eltype(source::Plan) = Float64
+
+nchannels(source::Plan) = 1
+
+samplerate(source::Plan) = source.the_sample_rate
+
+function length(source::Plan)
+    sum((samples for (_, samples) in source.outer_iterator))
+end
+
+# pull out all the type stable parts from the super unstable one below
+@noinline function inner_fill!(inner_iterator::Repeated, buf, a_range)
+    for index in a_range
+        item, _ = iterate(inner_iterator)
+        @inbounds buf[index] = item
+    end
+    nothing
+end
+
+@inline get_iterator(stateful::StrictStateful) = stateful.iterator
+@inline get_item_state(stateful::StrictStateful) = stateful.item_state
+@inline set_item_state!(stateful::StrictStateful, item, state) =
+    stateful.item_state = (item, state)
+
+@noinline function inner_fill!(
+    inner_iterator::StrictMapIterator{typeof(+),<:NTuple{N,SEGMENT} where {N}},
+    buf,
+    a_range,
+)
+    wave_shapes = map(segment -> segment.iterators, inner_iterator.iterators)
+
+    wave_statefuls = map(first, wave_shapes)
+    waves = map(get_iterator, wave_statefuls)
+    wave_item_states = map(get_item_state, wave_statefuls)
+    wave_items = map(first, wave_item_states)
+    wave_states = map(last, wave_item_states)
+
+    shape_statefuls = map(last, wave_shapes)
+    shapes = map(get_iterator, shape_statefuls)
+    shape_item_states = map(get_item_state, shape_statefuls)
+    shape_items = map(first, shape_item_states)
+    shape_states = map(last, shape_item_states)
+
+    for index in a_range
+        buf[index] = +(map(*, wave_items, shape_items)...)
+
+        wave_item_states = map(iterate, waves, wave_states)
+        wave_items = map(first, wave_item_states)
+        wave_states = map(last, wave_item_states)
+
+        shape_item_states = map(iterate, shapes, shape_states)
+        shape_items = map(first, shape_item_states)
+        shape_states = map(last, shape_item_states)
+    end
+    map(set_item_state!, wave_statefuls, wave_items, wave_states)
+    map(set_item_state!, shape_statefuls, shape_items, shape_states)
+    nothing
+end
+
+@noinline function switch_iterator!(source, buf, frameoffset, framecount, ::Nothing, until)
+    until
+end
+@noinline function switch_iterator!(
+    source,
+    buf,
+    frameoffset,
+    framecount,
+    outer_result,
+    until,
+)
+    (source.inner_iterator, source.has_left), source.outer_state = outer_result
+    unsafe_read!(source, buf, frameoffset, framecount, until + 1)
+end
+
+function unsafe_read!(source::Plan, buf, frameoffset, framecount, from = 1)
+    has_left = source.has_left
+    inner_iterator = source.inner_iterator
+    empties = framecount - from + 1
+    if (has_left >= empties)
+        source.has_left = has_left - empties
+        inner_fill!(inner_iterator, buf, from:framecount)
+        framecount
+    else
+        until = from + has_left - 1
+        inner_fill!(inner_iterator, buf, from:until)
+        outer_result = iterate(source.outer_iterator, source.outer_state)
+        switch_iterator!(source, buf, frameoffset, framecount, outer_result, until)
+    end
+end
+
+const ORCHESTRA = Dict{Symbol,Any}
 const TRIGGERS = SortedDict{Float64,Vector{Tuple{Symbol,Bool}}}
 
 mutable struct AudioSchedule
@@ -325,7 +361,7 @@ julia> buf = Vector{Float64}(undef, the_length);
 
 julia> unsafe_read!(a_plan, buf, 0, the_length);
 
-julia> buf[1:4] == [0.0, 1.417806391094423e-5, 4.23948845413273e-5, 8.44006285522918e-5]
+julia> buf[1:4] ≈ [0.0, 7.1029846e-6, 2.8356127e-5, 6.3592327e-5]
 true
 ```
 """
@@ -338,8 +374,7 @@ function schedule_segment!(a_schedule::AudioSchedule, iterator, start_time, dura
     triggers = a_schedule.triggers
     label = gensym("instrument")
     stop_time = start_time_unitless + duration / s
-    a_schedule.orchestra[label] =
-        StrictStateful(iterator), false
+    a_schedule.orchestra[label] = iterator, false
     start_trigger = label, true
     if haskey(triggers, start_time_unitless)
         push!(triggers[start_time_unitless], start_trigger)
@@ -367,7 +402,6 @@ function schedule!(a_schedule::AudioSchedule, synthesizer, start_time, envelope:
     durations = envelope.durations
     levels = envelope.levels
     shapes = envelope.shapes
-    index = 1
     stateful_iterator = StrictStateful(make_iterator(synthesizer, the_sample_rate))
     for index = 1:length(durations)
         duration = durations[index]
@@ -377,10 +411,10 @@ function schedule!(a_schedule::AudioSchedule, synthesizer, start_time, envelope:
                 *,
                 (
                     stateful_iterator,
-                    make_iterator(
+                    StrictStateful(make_iterator(
                         shapes[index](levels[index], levels[index+1], duration),
                         the_sample_rate,
-                    ),
+                    )),
                 ),
             ),
             start_time,
