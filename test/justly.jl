@@ -31,7 +31,7 @@ end
 
 const SAMPLE_RATE = 44100Hz
 a_schedule = AudioSchedule(SAMPLE_RATE)
-justly!(a_schedule, read("all_i_have_to_do_is_dream.json", String), 440Hz, 0.5s)
+justly!(a_schedule, read("all_i_have_to_do_is_dream.json", String), 440Hz, 2s)
 stream = PortAudioStream(samplerate = SAMPLE_RATE / Hz)
 a_plan = Plan(a_schedule)
 write(stream.sink, a_plan, length(a_plan))
