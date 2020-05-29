@@ -57,7 +57,7 @@
         "numerator": 1,
         "denominator": 1,
         "octave": 1,
-        "beats": 1
+        "beats": 2
       }
     ],
     "lyrics": "all I have to"
@@ -65,9 +65,9 @@
   {
     "notes": [
       {
-        "numerator": 9,
-        "denominator": 8,
-        "octave": 0,
+        "numerator": 4,
+        "denominator": 7,
+        "octave": 1,
         "beats": 1
       },
       {
@@ -247,7 +247,7 @@
         "numerator": 1,
         "denominator": 1,
         "octave": 1,
-        "beats": 1
+        "beats": 2
       },
       {
         "numerator": 5,
@@ -261,8 +261,14 @@
   {
     "notes": [
       {
-        "numerator": 9,
-        "denominator": 8,
+        "numerator": 4,
+        "denominator": 7,
+        "octave": 1,
+        "beats": 1
+      },
+      {
+        "numerator": 5,
+        "denominator": 4,
         "octave": 0,
         "beats": 1
       },
@@ -276,13 +282,7 @@
         "numerator": 1,
         "denominator": 1,
         "octave": 1,
-        "beats": 2
-      },
-      {
-        "numerator": 5,
-        "denominator": 4,
-        "octave": 1,
-        "beats": 1
+        "beats": 3
       }
     ],
     "lyrics": "night or"
@@ -296,16 +296,16 @@
         "beats": 1
       },
       {
+        "numerator": 1,
+        "denominator": 1,
+        "octave": 0,
+        "beats": 4
+      },
+      {
         "numerator": 5,
         "denominator": 4,
         "octave": 0,
         "beats": 2
-      },
-      {
-        "numerator": 1,
-        "denominator": 1,
-        "octave": 1,
-        "beats": 1
       }
     ],
     "lyrics": "day"
@@ -315,18 +315,6 @@
       {
         "numerator": 1,
         "denominator": 1,
-        "octave": 0,
-        "beats": 1
-      },
-      {
-        "numerator": 1,
-        "denominator": 1,
-        "octave": 0,
-        "beats": 3
-      },
-      {
-        "numerator": 3,
-        "denominator": 2,
         "octave": 0,
         "beats": 1
       },
@@ -394,9 +382,9 @@
   {
     "notes": [
       {
-        "numerator": 8,
-        "denominator": 9,
-        "octave": 0,
+        "numerator": 9,
+        "denominator": 5,
+        "octave": -1,
         "beats": 2
       },
       {
@@ -408,12 +396,6 @@
       {
         "numerator": 5,
         "denominator": 4,
-        "octave": 0,
-        "beats": 2
-      },
-      {
-        "numerator": 3,
-        "denominator": 2,
         "octave": 0,
         "beats": 2
       },
@@ -431,6 +413,12 @@
       {
         "numerator": 2,
         "denominator": 3,
+        "octave": 0,
+        "beats": 2
+      },
+      {
+        "numerator": 7,
+        "denominator": 4,
         "octave": 0,
         "beats": 2
       },

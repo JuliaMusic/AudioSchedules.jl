@@ -8,6 +8,13 @@ import SampledSignals: samplerate, nchannels, unsafe_read!
 using SampledSignals: Hz, s, SampleSource
 const TAU = 2 * pi
 
+@inline function add(first_one, rest...)
+    +(first_one, rest...)
+end
+@inline function add()
+    0.0
+end
+
 mutable struct StrictStateful{Iterator,Item,State}
     iterator::Iterator
     item_state::Tuple{Item,State}
@@ -34,8 +41,7 @@ export Synthesizer
 
 Return an iterator that will the play the `synthesizer` at `the_sample_rate`
 """
-make_iterator(synthesizer, the_sample_rate) = synthesizer
-export make_iterator
+make_iterator
 
 struct StrictMapIterator{AFunction,Iterators}
     a_function::AFunction
@@ -185,7 +191,6 @@ struct Envelope{Levels,Durations,Shapes}
 end
 export Envelope
 
-
 mutable struct Plan{InnerIterator} <: SampleSource
     outer_iterator::Vector{Tuple{InnerIterator,Int}}
     outer_state::Int
@@ -200,8 +205,11 @@ function Plan(
     outer_iterator::Vector{Tuple{InnerIterator,Int}},
     the_sample_rate,
 ) where {InnerIterator}
-    # TODO: save first item
-    (inner_iterator, has_left), outer_state = iterate(outer_iterator)
+    outer_result = iterate(outer_iterator)
+    if outer_result === nothing
+        error("The schedule was empty or had already been consumed")
+    end
+    (inner_iterator, has_left), outer_state = outer_result
     Plan{InnerIterator}(
         outer_iterator,
         outer_state,
@@ -221,22 +229,13 @@ function length(source::Plan)
     sum((samples for (_, samples) in source.outer_iterator))
 end
 
-# pull out all the type stable parts from the super unstable one below
-@noinline function inner_fill!(inner_iterator::Repeated, buf, a_range)
-    for index in a_range
-        item, _ = iterate(inner_iterator)
-        @inbounds buf[index] = item
-    end
-    nothing
-end
-
 @inline get_iterator(stateful::StrictStateful) = stateful.iterator
 @inline get_item_state(stateful::StrictStateful) = stateful.item_state
 @inline set_item_state!(stateful::StrictStateful, item, state) =
     stateful.item_state = (item, state)
 
 @noinline function inner_fill!(
-    inner_iterator::StrictMapIterator{typeof(+),<:NTuple{N,SEGMENT} where {N}},
+    inner_iterator::StrictMapIterator{<:Any,<:NTuple{N,SEGMENT} where {N}},
     buf,
     a_range,
 )
@@ -255,7 +254,7 @@ end
     shape_states = map(last, shape_item_states)
 
     for index in a_range
-        buf[index] = +(map(*, wave_items, shape_items)...)
+        buf[index] = inner_iterator.a_function(map(*, wave_items, shape_items)...)
 
         wave_item_states = map(iterate, waves, wave_states)
         wave_items = map(first, wave_item_states)
@@ -301,10 +300,29 @@ function unsafe_read!(source::Plan, buf, frameoffset, framecount, from = 1)
     end
 end
 
-const ORCHESTRA = Dict{Symbol,Any}
+const SEGMENT_STRICT = StrictMapIterator{
+    typeof(*),
+    <:Tuple{
+        StrictStateful{<:Any,Float64,<:Any},
+        StrictStateful{LineIterator,Float64,Float64},
+    },
+}
+
+const OUTER_ITEM = Tuple{
+    StrictMapIterator{
+        typeof(add),
+        <:NTuple{
+            <:Any,
+            SEGMENT_STRICT
+        },
+    },
+    Int,
+}
+
+const ORCHESTRA = Dict{Symbol,Tuple{SEGMENT_STRICT,Bool}}
 const TRIGGERS = SortedDict{Float64,Vector{Tuple{Symbol,Bool}}}
 
-mutable struct AudioSchedule
+struct AudioSchedule
     orchestra::ORCHESTRA
     triggers::TRIGGERS
     the_sample_rate::Int
@@ -339,12 +357,12 @@ julia> a_schedule
 AudioSchedule with triggers at (0.0, 0.05, 1.0, 1.05, 2.0) seconds
 ```
 
-Then, you can create a `SampledSource` from the schedule using [`Plan`](@ref).
+Then, you can create a `SampledSource` from the schedule using [`plan!`](@ref).
 
 ```jldoctest schedule
 julia> using SampledSignals: unsafe_read!
 
-julia> a_plan = Plan(a_schedule);
+julia> a_plan = plan!(a_schedule);
 ```
 
 You can find the number of samples in a `Plan` with length.
@@ -354,7 +372,7 @@ julia> the_length = length(a_plan)
 88200
 ```
 
-You can use `Plan` as a source for samples.
+You can use the plan as a source for samples.
 
 ```jldoctest schedule
 julia> buf = Vector{Float64}(undef, the_length);
@@ -363,6 +381,13 @@ julia> unsafe_read!(a_plan, buf, 0, the_length);
 
 julia> buf[1:4] ≈ [0.0, 7.1029846e-6, 2.8356127e-5, 6.3592327e-5]
 true
+```
+
+You can only `plan!` a schedule once.
+
+```jldoctest schedule
+julia> plan!(a_schedule)
+ERROR: The schedule was empty or had already been consumed
 ```
 """
 AudioSchedule(the_sample_rate) =
@@ -428,41 +453,32 @@ export schedule!
 show(io::IO, a_schedule::AudioSchedule) =
     print(io, "AudioSchedule with triggers at $((keys(a_schedule.triggers)...,)) seconds")
 
-function conduct(::Tuple{})
-    repeated(0.0)
-end
-
-function conduct(iterators)
-    StrictMapIterator(+, iterators)
-end
-
 """
-    Plan(a_schedule::AudioSchedule)
+    plan!(a_schedule::AudioSchedule)
 
 Return a `SampledSource` for the schedule.
 """
-function Plan(a_schedule::AudioSchedule)
+function plan!(a_schedule::AudioSchedule)
     the_sample_rate = a_schedule.the_sample_rate
     orchestra = a_schedule.orchestra
-    time = Ref(0.0)
-    Plan(
-        [
-            begin
-                together = conduct(((
-                    iterator for (iterator, is_on) in values(orchestra) if is_on
-                )...,))
-                for (label, is_on) in trigger_list
-                    iterator, _ = orchestra[label]
-                    orchestra[label] = iterator, is_on
-                end
-                samples = round(Int, (end_time - time[]) * the_sample_rate)
-                time[] = end_time
-                together, samples
-            end for (end_time, trigger_list) in pairs(a_schedule.triggers)
-        ],
-        the_sample_rate,
-    )
+    outer_iterator = OUTER_ITEM[]
+    time = 0.0
+    for (end_time, trigger_list) in pairs(a_schedule.triggers)
+        together = StrictMapIterator(
+            add,
+            ((iterator for (iterator, is_on) in values(orchestra) if is_on)...,),
+        )
+        for (label, is_on) in trigger_list
+            iterator, _ = orchestra[label]
+            orchestra[label] = iterator, is_on
+        end
+        samples = round(Int, (end_time - time) * the_sample_rate)
+        time = end_time
+        push!(outer_iterator, (together, samples))
+    end
+    empty!(a_schedule.triggers)
+    Plan(outer_iterator, the_sample_rate)
 end
-export Plan
+export plan!
 
 end
