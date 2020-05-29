@@ -1,9 +1,11 @@
 using PortAudio: PortAudioStream
 using Unitful: Hz, s
+using FileIO: save
+import LibSndFile
 import JSON
 
-function make_envelope(duration, ramp = 0.05s)
-    Envelope((0, 0.1, 0.1, 0), (ramp, duration - ramp - ramp, ramp), (Line, Line, Line))
+function make_envelope(duration, level = 0.2, ramp = 0.05s)
+    Envelope((0, level, level, 0), (ramp, duration - ramp - ramp, ramp), (Line, Line, Line))
 end
 
 function make_interval(note)
@@ -32,6 +34,7 @@ const SAMPLE_RATE = 44100Hz
 PortAudioStream(samplerate = SAMPLE_RATE / Hz) do stream
     a_schedule = AudioSchedule(SAMPLE_RATE)
     justly!(a_schedule, JSON.parsefile(joinpath(@__DIR__, "all_i_have_to_do_is_dream.json")), 440Hz, 1.25s)
-    a_plan = plan!(a_schedule)
-    write(stream.sink, a_plan, length(a_plan))
+    plan = plan!(a_schedule)
+    buf = read(plan, length(plan))
+    save(joinpath(homedir(), "Desktop", "all_i_have_to_do_is_dream.ogg"), buf)
 end
