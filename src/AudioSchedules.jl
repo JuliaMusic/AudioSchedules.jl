@@ -137,7 +137,7 @@ end
 """
     Cycles(frequency)
 
-Cycles from 0 2π to repeat at a `frequency`.
+Cycles from 0 to 2π to repeat at a `frequency`. See the example for [`AudioSchedule`](@ref).
 """
 struct Cycles <: Synthesizer
     frequency::Float64
