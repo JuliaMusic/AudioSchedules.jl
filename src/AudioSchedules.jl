@@ -137,7 +137,7 @@ end
 """
     Cycles(frequency)
 
-Cycles from 0 to 2π to repeat at a `frequency`. See the example for [`AudioSchedule`](@ref).
+Cycles from 0 to 2π to repeat at a `frequency`.
 """
 struct Cycles <: Synthesizer
     frequency::Float64
@@ -173,8 +173,6 @@ Line(0.0, 1.0, 0.05 s)
 Line(1.0, 1.0, 0.9 s)
 Line(1.0, 0.0, 0.05 s)
 ```
-
-See the example for [`AudioSchedule`](@ref).
 """
 struct Envelope{Levels,Durations,Shapes}
     levels::Levels
@@ -419,8 +417,7 @@ end
     schedule!(schedule::AudioSchedule, synthesizer::Synthesizer, start_time, envelope::Envelope)
 
 Schedule an audio synthesizer to be added to the `schedule`, starting at `start_time` with
-the duration and volume contained in an [`Envelope`](@ref). See the example for
-[`AudioSchedule`](@ref).
+the duration and volume contained in an [`Envelope`](@ref).
 """
 function schedule!(a_schedule::AudioSchedule, synthesizer, start_time, envelope::Envelope)
     the_sample_rate = a_schedule.the_sample_rate
