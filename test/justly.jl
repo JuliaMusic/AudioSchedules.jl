@@ -1,10 +1,10 @@
-using PortAudio: PortAudioStream
-using Unitful: Hz, s
+using AudioSchedules
 using FileIO: save
+using JSON: parsefile
 import LibSndFile
-import JSON
+using Unitful: Hz, s
 
-function make_envelope(duration, level = 0.2, ramp = 0.05s)
+function make_envelope(duration, level = 1, ramp = 0.05s)
     Envelope((0, level, level, 0), (ramp, duration - ramp - ramp, ramp), (Line, Line, Line))
 end
 
@@ -21,7 +21,7 @@ function justly!(schedule, song, key, seconds_per_beat)
         for note in notes[2:end]
             schedule!(
                 schedule,
-                StrictMap(sin, Cycles((key * make_interval(note)))),
+                equal_loudness(StrictMap(sin, Cycles((key * make_interval(note))))),
                 clock,
                 make_envelope(note["beats"] * seconds_per_beat),
             )
@@ -30,11 +30,15 @@ function justly!(schedule, song, key, seconds_per_beat)
     end
 end
 
-const SAMPLE_RATE = 44100Hz
-PortAudioStream(samplerate = SAMPLE_RATE / Hz) do stream
-    a_schedule = AudioSchedule(SAMPLE_RATE)
-    justly!(a_schedule, JSON.parsefile(joinpath(@__DIR__, "all_i_have_to_do_is_dream.json")), 440Hz, 1.25s)
-    plan = plan!(a_schedule)
-    buf = read(plan, length(plan))
-    save(joinpath(homedir(), "Desktop", "all_i_have_to_do_is_dream.ogg"), buf)
+function justly(filename; sample_rate = 44100Hz, key = 440Hz, seconds_per_beat = 1s)
+    test_schedule = AudioSchedule(sample_rate)
+    parsed = parsefile(string(filename, ".json"))
+    justly!(test_schedule, parsed, key, seconds_per_beat)
+    final = AudioSchedule(sample_rate)
+    justly!(final, parsed, key, seconds_per_beat)
+    final_plan = plan!(final)
+    readjust!(plan!(test_schedule), final_plan)
+    save(string(filename, ".ogg"), read(final_plan, length(final_plan)))
 end
+
+justly("test", seconds_per_beat = 0.25s)

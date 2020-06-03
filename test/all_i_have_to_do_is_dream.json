@@ -57,7 +57,7 @@
         "numerator": 1,
         "denominator": 1,
         "octave": 1,
-        "beats": 2
+        "beats": 1
       }
     ],
     "lyrics": "dream dream"
@@ -65,9 +65,9 @@
   {
     "notes": [
       {
-        "numerator": 4,
-        "denominator": 7,
-        "octave": 1,
+        "numerator": 9,
+        "denominator": 8,
+        "octave": 0,
         "beats": 1
       },
       {
@@ -86,7 +86,7 @@
         "numerator": 1,
         "denominator": 1,
         "octave": 1,
-        "beats": 3
+        "beats": 2
       }
     ],
     "lyrics": "dream"
@@ -143,7 +143,7 @@
         "numerator": 1,
         "denominator": 1,
         "octave": 1,
-        "beats": 2
+        "beats": 1
       }
     ],
     "lyrics": "dream dream"
@@ -151,9 +151,9 @@
   {
     "notes": [
       {
-        "numerator": 4,
-        "denominator": 7,
-        "octave": 1,
+        "numerator": 9,
+        "denominator": 8,
+        "octave": 0,
         "beats": 1
       },
       {
@@ -229,7 +229,7 @@
         "numerator": 1,
         "denominator": 1,
         "octave": 1,
-        "beats": 2
+        "beats": 1
       }
     ],
     "lyrics": "in my"
@@ -237,9 +237,9 @@
   {
     "notes": [
       {
-        "numerator": 4,
-        "denominator": 7,
-        "octave": 1,
+        "numerator": 9,
+        "denominator": 8,
+        "octave": 0,
         "beats": 1
       },
       {
@@ -321,7 +321,7 @@
         "numerator": 1,
         "denominator": 1,
         "octave": 1,
-        "beats": 2
+        "beats": 1
       }
     ],
     "lyrics": "and all your"
@@ -329,9 +329,9 @@
   {
     "notes": [
       {
-        "numerator": 4,
-        "denominator": 7,
-        "octave": 1,
+        "numerator": 9,
+        "denominator": 8,
+        "octave": 0,
         "beats": 1
       },
       {
@@ -407,7 +407,7 @@
         "numerator": 1,
         "denominator": 1,
         "octave": 1,
-        "beats": 2
+        "beats": 1
       }
     ],
     "lyrics": "all I have to"
@@ -415,9 +415,9 @@
   {
     "notes": [
       {
-        "numerator": 4,
-        "denominator": 7,
-        "octave": 1,
+        "numerator": 9,
+        "denominator": 8,
+        "octave": 0,
         "beats": 1
       },
       {
@@ -493,7 +493,7 @@
         "numerator": 1,
         "denominator": 1,
         "octave": 1,
-        "beats": 2
+        "beats": 1
       }
     ],
     "lyrics": "dream dream"
@@ -501,9 +501,9 @@
   {
     "notes": [
       {
-        "numerator": 4,
-        "denominator": 7,
-        "octave": 1,
+        "numerator": 9,
+        "denominator": 8,
+        "octave": 0,
         "beats": 1
       },
       {
@@ -579,7 +579,7 @@
         "numerator": 1,
         "denominator": 1,
         "octave": 1,
-        "beats": 2
+        "beats": 1
       }
     ],
     "lyrics": "in the"
@@ -587,9 +587,9 @@
   {
     "notes": [
       {
-        "numerator": 4,
-        "denominator": 7,
-        "octave": 1,
+        "numerator": 9,
+        "denominator": 8,
+        "octave": 0,
         "beats": 1
       },
       {
@@ -671,7 +671,7 @@
         "numerator": 1,
         "denominator": 1,
         "octave": 1,
-        "beats": 2
+        "beats": 1
       }
     ],
     "lyrics": "to hold me"
@@ -679,9 +679,9 @@
   {
     "notes": [
       {
-        "numerator": 4,
-        "denominator": 7,
-        "octave": 1,
+        "numerator": 9,
+        "denominator": 8,
+        "octave": 0,
         "beats": 1
       },
       {
@@ -757,7 +757,7 @@
         "numerator": 1,
         "denominator": 1,
         "octave": 1,
-        "beats": 2
+        "beats": 1
       }
     ],
     "lyrics": "all I have to"
@@ -765,9 +765,9 @@
   {
     "notes": [
       {
-        "numerator": 4,
-        "denominator": 7,
-        "octave": 1,
+        "numerator": 9,
+        "denominator": 8,
+        "octave": 0,
         "beats": 1
       },
       {
@@ -947,7 +947,7 @@
         "numerator": 1,
         "denominator": 1,
         "octave": 1,
-        "beats": 2
+        "beats": 1
       },
       {
         "numerator": 5,
@@ -961,9 +961,9 @@
   {
     "notes": [
       {
-        "numerator": 4,
-        "denominator": 7,
-        "octave": 1,
+        "numerator": 9,
+        "denominator": 8,
+        "octave": 0,
         "beats": 1
       },
       {
@@ -1189,7 +1189,7 @@
         "numerator": 1,
         "denominator": 1,
         "octave": 1,
-        "beats": 2
+        "beats": 1
       }
     ],
     "lyrics": "that I could"
@@ -1197,9 +1197,9 @@
   {
     "notes": [
       {
-        "numerator": 4,
-        "denominator": 7,
-        "octave": 1,
+        "numerator": 9,
+        "denominator": 8,
+        "octave": 0,
         "beats": 1
       },
       {
@@ -1275,7 +1275,7 @@
         "numerator": 1,
         "denominator": 1,
         "octave": 1,
-        "beats": 2
+        "beats": 1
       }
     ],
     "lyrics": "and that is"
@@ -1283,9 +1283,9 @@
   {
     "notes": [
       {
-        "numerator": 4,
-        "denominator": 7,
-        "octave": 1,
+        "numerator": 9,
+        "denominator": 8,
+        "octave": 0,
         "beats": 1
       },
       {
@@ -1361,7 +1361,7 @@
         "numerator": 1,
         "denominator": 1,
         "octave": 1,
-        "beats": 2
+        "beats": 1
       }
     ],
     "lyrics": "all I have to"
@@ -1369,9 +1369,9 @@
   {
     "notes": [
       {
-        "numerator": 4,
-        "denominator": 7,
-        "octave": 1,
+        "numerator": 9,
+        "denominator": 8,
+        "octave": 0,
         "beats": 1
       },
       {
@@ -1447,7 +1447,7 @@
         "numerator": 1,
         "denominator": 1,
         "octave": 1,
-        "beats": 2
+        "beats": 1
       }
     ],
     "lyrics": "dream dream"
@@ -1455,9 +1455,9 @@
   {
     "notes": [
       {
-        "numerator": 4,
-        "denominator": 7,
-        "octave": 1,
+        "numerator": 9,
+        "denominator": 8,
+        "octave": 0,
         "beats": 1
       },
       {
@@ -1637,7 +1637,7 @@
         "numerator": 1,
         "denominator": 1,
         "octave": 1,
-        "beats": 2
+        "beats": 1
       },
       {
         "numerator": 5,
@@ -1651,9 +1651,9 @@
   {
     "notes": [
       {
-        "numerator": 4,
-        "denominator": 7,
-        "octave": 1,
+        "numerator": 9,
+        "denominator": 8,
+        "octave": 0,
         "beats": 1
       },
       {
@@ -1879,7 +1879,7 @@
         "numerator": 1,
         "denominator": 1,
         "octave": 1,
-        "beats": 2
+        "beats": 1
       }
     ],
     "lyrics": "that I could"
@@ -1887,9 +1887,9 @@
   {
     "notes": [
       {
-        "numerator": 4,
-        "denominator": 7,
-        "octave": 1,
+        "numerator": 9,
+        "denominator": 8,
+        "octave": 0,
         "beats": 1
       },
       {
@@ -1965,7 +1965,7 @@
         "numerator": 1,
         "denominator": 1,
         "octave": 1,
-        "beats": 2
+        "beats": 1
       }
     ],
     "lyrics": "and that is"
@@ -1973,9 +1973,9 @@
   {
     "notes": [
       {
-        "numerator": 4,
-        "denominator": 7,
-        "octave": 1,
+        "numerator": 9,
+        "denominator": 8,
+        "octave": 0,
         "beats": 1
       },
       {
@@ -2051,7 +2051,7 @@
         "numerator": 1,
         "denominator": 1,
         "octave": 1,
-        "beats": 2
+        "beats": 1
       }
     ],
     "lyrics": "all I have to"
@@ -2059,9 +2059,9 @@
   {
     "notes": [
       {
-        "numerator": 4,
-        "denominator": 7,
-        "octave": 1,
+        "numerator": 9,
+        "denominator": 8,
+        "octave": 0,
         "beats": 1
       },
       {
@@ -2137,7 +2137,7 @@
         "numerator": 1,
         "denominator": 1,
         "octave": 1,
-        "beats": 2
+        "beats": 1
       }
     ],
     "lyrics": "dream dream"
@@ -2145,9 +2145,9 @@
   {
     "notes": [
       {
-        "numerator": 4,
-        "denominator": 7,
-        "octave": 1,
+        "numerator": 9,
+        "denominator": 8,
+        "octave": 0,
         "beats": 1
       },
       {
@@ -2223,7 +2223,7 @@
         "numerator": 1,
         "denominator": 1,
         "octave": 1,
-        "beats": 2
+        "beats": 1
       }
     ],
     "lyrics": "dream dream"
@@ -2231,9 +2231,9 @@
   {
     "notes": [
       {
-        "numerator": 4,
-        "denominator": 7,
-        "octave": 1,
+        "numerator": 9,
+        "denominator": 8,
+        "octave": 0,
         "beats": 1
       },
       {
@@ -2309,7 +2309,7 @@
         "numerator": 1,
         "denominator": 1,
         "octave": 1,
-        "beats": 2
+        "beats": 1
       }
     ],
     "lyrics": "dream dream"
@@ -2317,9 +2317,9 @@
   {
     "notes": [
       {
-        "numerator": 4,
-        "denominator": 7,
-        "octave": 1,
+        "numerator": 9,
+        "denominator": 8,
+        "octave": 0,
         "beats": 1
       },
       {

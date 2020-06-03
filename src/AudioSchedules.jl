@@ -1,12 +1,26 @@
 module AudioSchedules
 
-import Base: eltype, iterate, IteratorEltype, IteratorSize, length, read!, setindex!, show
+import Base: eltype, extrema, iterate, IteratorEltype, IteratorSize, length, map!, read!, setindex!, show
 using Base: Generator, EltypeUnknown, IsInfinite, HasEltype, HasLength, RefValue, tail
 using Base.Iterators: Repeated, repeated, Stateful
 using DataStructures: SortedDict
+using Interpolations: CubicSplineInterpolation
 import SampledSignals: samplerate, nchannels, unsafe_read!
 using SampledSignals: Hz, s, SampleSource
 const TAU = 2 * pi
+using Unitful: Hz, μPa, dB
+
+@inline function zip_unrolled(expected, them::Vararg{Any})
+    map(first, them), zip_unrolled(expected, map(tail, them)...)...
+end
+@inline function zip_unrolled(expected, them::Vararg{Tuple{}})
+    ()
+end
+@inline function zip_unrolled(expected, them::Vararg{Any,0})
+    ntuple((@inline function (thing)
+        ()
+    end), expected)
+end
 
 @inline function add(first_one, rest...)
     +(first_one, rest...)
@@ -26,6 +40,13 @@ function iterate(stateful::StrictStateful, state = nothing)
     last_item, state = stateful.item_state
     stateful.item_state = iterate(stateful.iterator, state)
     last_item, nothing
+end
+
+@inline function detach(iterator::StrictStateful)
+    iterator.iterator, iterator.item_state...
+end
+@inline function reattach!(iterator::StrictStateful, item, state)
+    iterator.item_state = (item, state)
 end
 
 """
@@ -53,8 +74,46 @@ IteratorSize(::Type{<:StrictMapIterator}) = IsInfinite
 IteratorEltype(::Type{<:StrictMapIterator}) = EltypeUnknown
 
 @inline function iterate(something::StrictMapIterator, state...)
-    items_states = map(iterate, something.iterators, state...)
-    something.a_function(map(first, items_states)...), map(last, items_states)
+    items, states = zip_unrolled(Val(2), map(iterate, something.iterators, state...)...)
+    something.a_function(items...), states
+end
+
+@inline flatten_unrolled(first_one, rest...) = first_one..., flatten_unrolled(rest...)...
+@inline flatten_unrolled() = ()
+@inline function take_tuple(items, model)
+    kept, trashed = take_tuple(tail(items), tail(model))
+    (first(items), kept...), trashed
+end
+@inline function take_tuple(items, ::Tuple{})
+    (), items
+end
+@inline function partition_models(items, first_model, more_models...)
+    kept, trashed = take_tuple(items, first_model)
+    kept, partition_models(trashed, more_models...)...
+end
+@inline partition_models(items) = ()
+
+function StrictMapIterator(a_function, maps::Tuple{StrictMapIterator, Vararg{StrictMapIterator}})
+    functions = map(a_map -> a_map.a_function, maps)
+    iteratorss = map(a_map -> a_map.iterators, maps)
+    models =
+        map(iterators -> ntuple(iterator -> missing, length(iterators)), iteratorss)
+    StrictMapIterator(
+        let a_function = a_function, functions = functions, models = models
+            @inline function (clump...)
+                clumps = a_function(map(
+                    let a_function = a_function
+                        @inline function (a_function, clump)
+                            a_function(clump...)
+                        end
+                    end,
+                    functions,
+                    partition_models(clump, models...),
+                )...)
+            end
+        end,
+        flatten_unrolled(iteratorss...),
+    )
 end
 
 """
@@ -197,7 +256,7 @@ mutable struct Plan{InnerIterator} <: SampleSource
     the_sample_rate::Int
 end
 
-const SEGMENT = StrictMapIterator{typeof(*),<:Tuple{StrictStateful,StrictStateful}}
+const MapOfStatefuls = StrictMapIterator{<:Any, <:NTuple{<:Any, StrictStateful}}
 
 function Plan(
     outer_iterator::Vector{Tuple{InnerIterator,Int}},
@@ -227,43 +286,110 @@ function length(source::Plan)
     sum((samples for (_, samples) in source.outer_iterator))
 end
 
-@inline get_iterator(stateful::StrictStateful) = stateful.iterator
-@inline get_item_state(stateful::StrictStateful) = stateful.item_state
-@inline set_item_state!(stateful::StrictStateful, item, state) =
-    stateful.item_state = (item, state)
+function map!(a_function, a_plan::Plan)
+    outer_iterator = a_plan.outer_iterator
+    map!(
+        function ((iterator, number),)
+            StrictMapIterator(a_function, (iterator,)), number
+        end,
+        outer_iterator,
+        outer_iterator
+    )
+    nothing
+end
 
-@noinline function inner_fill!(
-    inner_iterator::StrictMapIterator{<:Any,<:NTuple{N,SEGMENT} where {N}},
-    buf,
-    a_range,
-)
-    wave_shapes = map(segment -> segment.iterators, inner_iterator.iterators)
-
-    wave_statefuls = map(first, wave_shapes)
-    waves = map(get_iterator, wave_statefuls)
-    wave_item_states = map(get_item_state, wave_statefuls)
-    wave_items = map(first, wave_item_states)
-    wave_states = map(last, wave_item_states)
-
-    shape_statefuls = map(last, wave_shapes)
-    shapes = map(get_iterator, shape_statefuls)
-    shape_item_states = map(get_item_state, shape_statefuls)
-    shape_items = map(first, shape_item_states)
-    shape_states = map(last, shape_item_states)
-
-    for index in a_range
-        buf[index] = inner_iterator.a_function(map(*, wave_items, shape_items)...)
-
-        wave_item_states = map(iterate, waves, wave_states)
-        wave_items = map(first, wave_item_states)
-        wave_states = map(last, wave_item_states)
-
-        shape_item_states = map(iterate, shapes, shape_states)
-        shape_items = map(first, shape_item_states)
-        shape_states = map(last, shape_item_states)
+@noinline function seek_extrema!(a_map::MapOfStatefuls, number, lower, upper)
+    a_function = a_map.a_function
+    statefuls = a_map.iterators
+    iterators, items, states = zip_unrolled(Val(3), map(detach, statefuls)...)
+    for _ in 1:number
+        result = a_function(items...)
+        lower = min(lower, result)
+        upper = max(upper, result)
+        items, states = zip_unrolled(Val(2), map(iterate, iterators, states)...)
     end
-    map(set_item_state!, wave_statefuls, wave_items, wave_states)
-    map(set_item_state!, shape_statefuls, shape_items, shape_states)
+    map(reattach!, statefuls, items, states)
+    lower, upper
+end
+
+"""
+    extrema!(a_plan::Plan)
+
+Find the extrema of a plan. Unfortunately, this uses up the iterators in a plan.
+
+```jldoctest schedule
+julia> using AudioSchedules
+
+julia> using Unitful: s, Hz
+
+julia> a_schedule = AudioSchedule(44100Hz);
+
+julia> schedule!(a_schedule, StrictMap(sin, Cycles(440Hz)), 0s, Envelope((1, 1), (1s,), (Line,)))
+
+julia> extrema!(plan!(a_schedule)) .≈ (-0.99999974, 0.99999974)
+(true, true)
+```
+"""
+function extrema!(a_plan::Plan)
+    lower = Inf
+    upper = -Inf
+    for (iterator, number) in a_plan.outer_iterator
+        lower, upper = seek_extrema!(iterator, number, lower, upper)
+    end
+    lower, upper
+end
+export extrema!
+
+"""
+    readjust!(old_plan::Plan, new_plan::Plan; maximum_volume = 1.0)
+
+Readjust the volume in `new_plan` based on the volume of `old_plan`, to a maximum volume of
+1.0. Note: will "use up" `old_plan`.
+
+```jldoctest schedule
+julia> using AudioSchedules
+
+julia> using Unitful: s, Hz
+
+julia> schedule_1 = AudioSchedule(44100Hz); schedule_2 = AudioSchedule(44100Hz);
+
+julia> note = (StrictMap(sin, Cycles(440Hz)), 0s, Envelope((1, 1), (1s,), (Line,)));
+
+julia> schedule!(schedule_1, note...); schedule!(schedule_1, note...)
+
+julia> schedule!(schedule_2, note...); schedule!(schedule_2, note...)
+
+julia> plan_2 = plan!(schedule_2);
+
+julia> readjust!(plan!(schedule_1), plan_2)
+
+julia> extrema!(plan_2) .≈ (-1.0, 1.0)
+(true, true)
+```
+"""
+function readjust!(old_plan::Plan, new_plan::Plan; maximum_volume = 1.0)
+    lower, upper = extrema!(old_plan)
+    map!(
+        let scale = 1.0 / max(abs(lower), abs(upper))
+            @inline function (amplitude)
+                amplitude * scale
+            end
+        end,
+        new_plan
+    )
+    nothing
+end
+export readjust!
+
+@noinline function inner_fill!(a_map::StrictMapIterator{<:Any, <:NTuple{<:Any, StrictStateful}}, buf, a_range)
+    a_function = a_map.a_function
+    statefuls = a_map.iterators
+    iterators, items, states = zip_unrolled(Val(3), map(detach, statefuls)...)
+    for index in a_range
+        buf[index] = a_function(items...)
+        items, states = zip_unrolled(Val(2), map(iterate, iterators, states)...)
+    end
+    map(reattach!, statefuls, items, states)
     nothing
 end
 
@@ -298,26 +424,7 @@ function unsafe_read!(source::Plan, buf, frameoffset, framecount, from = 1)
     end
 end
 
-const SEGMENT_STRICT = StrictMapIterator{
-    typeof(*),
-    <:Tuple{
-        StrictStateful{<:Any,Float64,<:Any},
-        StrictStateful{LineIterator,Float64,Float64},
-    },
-}
-
-const OUTER_ITEM = Tuple{
-    StrictMapIterator{
-        typeof(add),
-        <:NTuple{
-            <:Any,
-            SEGMENT_STRICT
-        },
-    },
-    Int,
-}
-
-const ORCHESTRA = Dict{Symbol,Tuple{SEGMENT_STRICT,Bool}}
+const ORCHESTRA = Dict{Symbol,Tuple{StrictMapIterator,Bool}}
 const TRIGGERS = SortedDict{Float64,Vector{Tuple{Symbol,Bool}}}
 
 struct AudioSchedule
@@ -334,7 +441,7 @@ Create an `AudioSchedule`.
 ```jldoctest schedule
 julia> using AudioSchedules
 
-julia> using SampledSignals: s, Hz
+julia> using Unitful: s, Hz
 
 julia> a_schedule = AudioSchedule(44100Hz)
 AudioSchedule with triggers at () seconds
@@ -431,13 +538,12 @@ function schedule!(a_schedule::AudioSchedule, synthesizer, start_time, envelope:
             a_schedule,
             StrictMapIterator(
                 *,
-                (
-                    stateful_iterator,
-                    StrictStateful(make_iterator(
-                        shapes[index](levels[index], levels[index+1], duration),
-                        the_sample_rate,
-                    )),
-                ),
+                (stateful_iterator,
+                StrictStateful(make_iterator(
+                    shapes[index](levels[index], levels[index+1], duration),
+                    the_sample_rate,
+                ))
+                )
             ),
             start_time,
             duration,
@@ -457,25 +563,75 @@ Return a `SampledSource` for the schedule.
 """
 function plan!(a_schedule::AudioSchedule)
     the_sample_rate = a_schedule.the_sample_rate
+    triggers = a_schedule.triggers
     orchestra = a_schedule.orchestra
-    outer_iterator = OUTER_ITEM[]
-    time = 0.0
-    for (end_time, trigger_list) in pairs(a_schedule.triggers)
-        together = StrictMapIterator(
-            add,
-            ((iterator for (iterator, is_on) in values(orchestra) if is_on)...,),
-        )
-        for (label, is_on) in trigger_list
-            iterator, _ = orchestra[label]
-            orchestra[label] = iterator, is_on
-        end
-        samples = round(Int, (end_time - time) * the_sample_rate)
-        time = end_time
-        push!(outer_iterator, (together, samples))
-    end
-    empty!(a_schedule.triggers)
+    time = Ref(0.0)
+    outer_iterator = [
+        begin
+            together = StrictMapIterator(
+                add,
+                ((iterator for (iterator, is_on) in values(orchestra) if is_on)...,),
+            )
+            for (label, is_on) in trigger_list
+                iterator, _ = orchestra[label]
+                orchestra[label] = iterator, is_on
+            end
+            samples = round(Int, (end_time - time[]) * the_sample_rate)
+            time[] = end_time
+            together, samples
+        end for (end_time, trigger_list) in pairs(triggers)
+    ]
+    empty!(triggers)
     Plan(outer_iterator, the_sample_rate)
 end
+
 export plan!
+
+
+"""
+    make_plan(the_sample_rate, triples, maximum_volume = 1.0)
+
+A convenience function. `triples` should be a list of triples in the form
+
+    (synthesizer, start_time, envelope)
+
+Create a test schedule with [`AudioSchedule`](@ref) with `the_sample_rate`,
+[`schedule!`](@ref) all the triples, find the [`extrema!`](@ref) of the
+test plan, then repeat all the previous steps, [`readjust!`](@ref)ing the volume to
+`maximum_volume`.
+
+```jldoctest
+julia> using AudioSchedules
+
+julia> using Unitful: s, Hz
+
+julia> envelope = Envelope((0, 0.25, 0), (0.05s, 0.95s), (Line, Line));
+
+julia> plan = make_plan(44100Hz, [
+            (StrictMap(sin, Cycles(440Hz)), 0s, envelope),
+            (StrictMap(sin, Cycles(440Hz)), 1s, envelope),
+            (StrictMap(sin, Cycles(550Hz)), 1s, envelope)
+        ]);
+
+julia> extrema!(plan) .≈ (-1.0, 0.99895193)
+(true, true)
+```
+"""
+function make_plan(the_sample_rate, triples; maximum_volume = 1.0)
+    test_schedule = AudioSchedule(the_sample_rate)
+    for triple in triples
+        schedule!(test_schedule, triple...)
+    end
+    schedule = AudioSchedule(the_sample_rate)
+    for triple in triples
+        schedule!(schedule, triple...)
+    end
+    plan = plan!(schedule)
+    readjust!(plan!(test_schedule), plan; maximum_volume = maximum_volume)
+    plan
+end
+export make_plan
+
+include("equal_loudness.jl")
 
 end

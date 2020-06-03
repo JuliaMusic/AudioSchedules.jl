@@ -1,0 +1,94 @@
+[
+  {
+    "notes": [
+      {
+        "numerator": 1,
+        "denominator": 1,
+        "octave": 0,
+        "beats": 1
+      },
+      {
+        "numerator": 1,
+        "denominator": 1,
+        "octave": 0,
+        "beats": 4
+      },
+      {
+        "numerator": 5,
+        "denominator": 4,
+        "octave": 0,
+        "beats": 1
+      },
+      {
+        "numerator": 3,
+        "denominator": 2,
+        "octave": 0,
+        "beats": 1
+      }
+    ],
+    "lyrics": "I"
+  },
+  {
+    "notes": [
+      {
+        "numerator": 2,
+        "denominator": 3,
+        "octave": 0,
+        "beats": 1
+      },
+      {
+        "numerator": 1,
+        "denominator": 1,
+        "octave": 1,
+        "beats": 1
+      },
+      {
+        "numerator": 6,
+        "denominator": 5,
+        "octave": 1,
+        "beats": 1
+      }
+    ],
+    "lyrics": "iv"
+  },
+  {
+    "notes": [
+      {
+        "numerator": 3,
+        "denominator": 2,
+        "octave": 0,
+        "beats": 1
+      },
+      {
+        "numerator": 5,
+        "denominator": 4,
+        "octave": 0,
+        "beats": 2
+      },
+      {
+        "numerator": 3,
+        "denominator": 2,
+        "octave": 0,
+        "beats": 2
+      }
+    ],
+    "lyrics": "I"
+  },
+  {
+    "notes": [
+      {
+        "numerator": 1,
+        "denominator": 1,
+        "octave": -1,
+        "beats": 1
+      },
+      {
+        "numerator": 1,
+        "denominator": 1,
+        "octave": 0,
+        "beats": 1
+      }
+    ],
+    "lyrics": ""
+  }
+]
