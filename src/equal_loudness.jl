@@ -112,8 +112,7 @@ const MAXIMUM_PRESSURE = equivalent_sound_pressure(40, 20Hz)
     equal_loudness(synthesizer::StrictMap{<:Any, Tuple{Cycles}})
 
 Change the volume of a synthesizer so that sounds played at different frequencies will have
-the same perceived volume. Assumes that the map function has a period of 2π. Uses the ISO
-226:2003 curves for 40 phons.
+the same perceived volume. Assumes that the map function has a period of 2π.
 
 ```jldoctest
 julia> using AudioSchedules
@@ -122,9 +121,13 @@ julia> using Unitful: Hz
 
 julia> soft = equal_loudness(StrictMap(cos, Cycles(10000Hz)));
 
-julia> first(AudioSchedules.make_iterator(soft, 44100)) ≈ 0.0053035474
+julia> first(make_iterator(soft, 44100Hz)) ≈ 0.0053035474
 true
 ```
+
+Technical details: uses the ISO 226:2003 curve for 40 phons. Scales output by a ratio
+of the equivalent sound pressure at the current frequency to the equivalent sound pressure
+at 20Hz (about as low as humans can hear).
 """
 function equal_loudness(synthesizer::StrictMap{<:Any, Tuple{Cycles}})
     StrictMap(

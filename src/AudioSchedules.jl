@@ -63,6 +63,7 @@ export Synthesizer
 Return an iterator that will the play the `synthesizer` at `the_sample_rate`
 """
 make_iterator
+export make_iterator
 
 struct StrictMapIterator{AFunction,Iterators}
     a_function::AFunction
@@ -170,7 +171,7 @@ function make_iterator(line::Line, the_sample_rate)
     start_value = line.start_value
     LineIterator(
         start_value,
-        (line.end_value - start_value) / (the_sample_rate * line.duration),
+        (line.end_value - start_value) / (the_sample_rate / Hz * line.duration),
     )
 end
 
@@ -206,7 +207,7 @@ end
 export Cycles
 
 function make_iterator(cycles::Cycles, the_sample_rate)
-    CyclesIterator(0, cycles.frequency / the_sample_rate * TAU)
+    CyclesIterator(0, cycles.frequency / (the_sample_rate / Hz) * TAU)
 end
 
 """
@@ -315,18 +316,18 @@ end
 """
     extrema!(a_plan::Plan)
 
-Find the extrema of a plan. Unfortunately, this uses up the iterators in a plan.
+Find the extrema of a plan. This will consume the plan.
 
 ```jldoctest schedule
 julia> using AudioSchedules
 
 julia> using Unitful: s, Hz
 
-julia> a_schedule = AudioSchedule(44100Hz);
+julia> a_schedule = AudioSchedule();
 
 julia> schedule!(a_schedule, StrictMap(sin, Cycles(440Hz)), 0s, Envelope((1, 1), (1s,), (Line,)))
 
-julia> extrema!(plan!(a_schedule)) .≈ (-0.99999974, 0.99999974)
+julia> extrema!(Plan(a_schedule, 44100Hz)) .≈ (-0.99999974, 0.99999974)
 (true, true)
 ```
 """
@@ -339,47 +340,6 @@ function extrema!(a_plan::Plan)
     lower, upper
 end
 export extrema!
-
-"""
-    readjust!(old_plan::Plan, new_plan::Plan; maximum_volume = 1.0)
-
-Readjust the volume in `new_plan` based on the volume of `old_plan`, to a maximum volume of
-1.0. Note: will "use up" `old_plan`.
-
-```jldoctest schedule
-julia> using AudioSchedules
-
-julia> using Unitful: s, Hz
-
-julia> schedule_1 = AudioSchedule(44100Hz); schedule_2 = AudioSchedule(44100Hz);
-
-julia> note = (StrictMap(sin, Cycles(440Hz)), 0s, Envelope((1, 1), (1s,), (Line,)));
-
-julia> schedule!(schedule_1, note...); schedule!(schedule_1, note...)
-
-julia> schedule!(schedule_2, note...); schedule!(schedule_2, note...)
-
-julia> plan_2 = plan!(schedule_2);
-
-julia> readjust!(plan!(schedule_1), plan_2)
-
-julia> extrema!(plan_2) .≈ (-1.0, 1.0)
-(true, true)
-```
-"""
-function readjust!(old_plan::Plan, new_plan::Plan; maximum_volume = 1.0)
-    lower, upper = extrema!(old_plan)
-    map!(
-        let scale = 1.0 / max(abs(lower), abs(upper))
-            @inline function (amplitude)
-                amplitude * scale
-            end
-        end,
-        new_plan
-    )
-    nothing
-end
-export readjust!
 
 @noinline function inner_fill!(a_map::StrictMapIterator{<:Any, <:NTuple{<:Any, StrictStateful}}, buf, a_range)
     a_function = a_map.a_function
@@ -424,13 +384,10 @@ function unsafe_read!(source::Plan, buf, frameoffset, framecount, from = 1)
     end
 end
 
-const ORCHESTRA = Dict{Symbol,Tuple{StrictMapIterator,Bool}}
-const TRIGGERS = SortedDict{Float64,Vector{Tuple{Symbol,Bool}}}
+const TRIPLES = Vector{Tuple{Synthesizer, Any, Envelope}}
 
 struct AudioSchedule
-    orchestra::ORCHESTRA
-    triggers::TRIGGERS
-    the_sample_rate::Int
+    triples::TRIPLES
 end
 
 """
@@ -443,8 +400,7 @@ julia> using AudioSchedules
 
 julia> using Unitful: s, Hz
 
-julia> a_schedule = AudioSchedule(44100Hz)
-AudioSchedule with triggers at () seconds
+julia> a_schedule = AudioSchedule();
 ```
 
 Add a synthesizer to the schedule with [`schedule!`](@ref).
@@ -457,17 +413,12 @@ julia> schedule!(a_schedule, StrictMap(sin, Cycles(440Hz)), 0s, envelope)
 julia> schedule!(a_schedule, StrictMap(sin, Cycles(440Hz)), 1s, envelope)
 
 julia> schedule!(a_schedule, StrictMap(sin, Cycles(550Hz)), 1s, envelope)
-
-julia> a_schedule
-AudioSchedule with triggers at (0.0, 0.05, 1.0, 1.05, 2.0) seconds
 ```
 
-Then, you can create a `SampledSource` from the schedule using [`plan!`](@ref).
+Then, you can create a `SampledSource` from the schedule using [`Plan`](@ref).
 
 ```jldoctest schedule
-julia> using SampledSignals: unsafe_read!
-
-julia> a_plan = plan!(a_schedule);
+julia> a_plan = Plan(a_schedule, 44100Hz);
 ```
 
 You can find the number of samples in a `Plan` with length.
@@ -480,6 +431,8 @@ julia> the_length = length(a_plan)
 You can use the plan as a source for samples.
 
 ```jldoctest schedule
+julia> using SampledSignals: unsafe_read!
+
 julia> buf = Vector{Float64}(undef, the_length);
 
 julia> unsafe_read!(a_plan, buf, 0, the_length);
@@ -487,38 +440,10 @@ julia> unsafe_read!(a_plan, buf, 0, the_length);
 julia> buf[1:4] ≈ [0.0, 7.1029846e-6, 2.8356127e-5, 6.3592327e-5]
 true
 ```
-
-You can only `plan!` a schedule once.
-
-```jldoctest schedule
-julia> plan!(a_schedule)
-ERROR: The schedule was empty or had already been consumed
-```
 """
-AudioSchedule(the_sample_rate) =
-    AudioSchedule(ORCHESTRA(), TRIGGERS(), the_sample_rate / Hz)
-export AudioSchedule
+AudioSchedule() = AudioSchedule(TRIPLES())
 
-function schedule_segment!(a_schedule::AudioSchedule, iterator, start_time, duration)
-    start_time_unitless = start_time / s
-    triggers = a_schedule.triggers
-    label = gensym("instrument")
-    stop_time = start_time_unitless + duration / s
-    a_schedule.orchestra[label] = iterator, false
-    start_trigger = label, true
-    if haskey(triggers, start_time_unitless)
-        push!(triggers[start_time_unitless], start_trigger)
-    else
-        triggers[start_time_unitless] = [start_trigger]
-    end
-    stop_trigger = label, false
-    if haskey(triggers, stop_time)
-        push!(triggers[stop_time], stop_trigger)
-    else
-        triggers[stop_time] = [stop_trigger]
-    end
-    nothing
-end
+export AudioSchedule
 
 """
     schedule!(schedule::AudioSchedule, synthesizer::Synthesizer, start_time, envelope::Envelope)
@@ -526,17 +451,32 @@ end
 Schedule an audio synthesizer to be added to the `schedule`, starting at `start_time` with
 the duration and volume contained in an [`Envelope`](@ref).
 """
-function schedule!(a_schedule::AudioSchedule, synthesizer, start_time, envelope::Envelope)
-    the_sample_rate = a_schedule.the_sample_rate
-    durations = envelope.durations
-    levels = envelope.levels
-    shapes = envelope.shapes
-    stateful_iterator = StrictStateful(make_iterator(synthesizer, the_sample_rate))
-    for index = 1:length(durations)
-        duration = durations[index]
-        schedule_segment!(
-            a_schedule,
-            StrictMapIterator(
+function schedule!(a_schedule::AudioSchedule, synthesizer::Synthesizer, start_time, envelope::Envelope)
+    push!(a_schedule.triples, (synthesizer, start_time, envelope))
+    nothing
+end
+
+export schedule!
+
+"""
+    Plan(a_schedule::AudioSchedule)
+
+Return a `SampledSource` for the schedule.
+"""
+function Plan(a_schedule::AudioSchedule, the_sample_rate)
+    triggers = SortedDict{Float64,Vector{Tuple{Symbol,Bool}}}()
+    orchestra = Dict{Symbol,Tuple{StrictMapIterator,Bool}}()
+    for (synthesizer, start_time, envelope) in a_schedule.triples
+        durations = envelope.durations
+        levels = envelope.levels
+        shapes = envelope.shapes
+        stateful_iterator = StrictStateful(make_iterator(synthesizer, the_sample_rate))
+        for index = 1:length(durations)
+            duration = durations[index]
+            start_time_seconds = start_time / s
+            label = gensym("instrument")
+            stop_time_seconds = start_time_seconds + duration / s
+            orchestra[label] = StrictMapIterator(
                 *,
                 (stateful_iterator,
                 StrictStateful(make_iterator(
@@ -544,30 +484,28 @@ function schedule!(a_schedule::AudioSchedule, synthesizer, start_time, envelope:
                     the_sample_rate,
                 ))
                 )
-            ),
-            start_time,
-            duration,
-        )
-        start_time = start_time + duration
+            ), false
+            start_trigger = label, true
+            if haskey(triggers, start_time_seconds)
+                push!(triggers[start_time_seconds], start_trigger)
+            else
+                triggers[start_time_seconds] = [start_trigger]
+            end
+            stop_trigger = label, false
+            if haskey(triggers, stop_time_seconds)
+                push!(triggers[stop_time_seconds], stop_trigger)
+            else
+                triggers[stop_time_seconds] = [stop_trigger]
+            end
+            start_time = start_time + duration
+        end
     end
-end
-export schedule!
-
-show(io::IO, a_schedule::AudioSchedule) =
-    print(io, "AudioSchedule with triggers at $((keys(a_schedule.triggers)...,)) seconds")
-
-"""
-    plan!(a_schedule::AudioSchedule)
-
-Return a `SampledSource` for the schedule.
-"""
-function plan!(a_schedule::AudioSchedule)
-    the_sample_rate = a_schedule.the_sample_rate
-    triggers = a_schedule.triggers
-    orchestra = a_schedule.orchestra
-    time = Ref(0.0)
+    time = Ref(0.0s)
     outer_iterator = [
         begin
+            trigger_time = (trigger_time_unitless)s
+            samples = round(Int, (trigger_time - time[]) * the_sample_rate)
+            time[] = trigger_time
             together = StrictMapIterator(
                 add,
                 ((iterator for (iterator, is_on) in values(orchestra) if is_on)...,),
@@ -576,61 +514,50 @@ function plan!(a_schedule::AudioSchedule)
                 iterator, _ = orchestra[label]
                 orchestra[label] = iterator, is_on
             end
-            samples = round(Int, (end_time - time[]) * the_sample_rate)
-            time[] = end_time
             together, samples
-        end for (end_time, trigger_list) in pairs(triggers)
+        end for (trigger_time_unitless, trigger_list) in pairs(triggers)
     ]
-    empty!(triggers)
-    Plan(outer_iterator, the_sample_rate)
+    Plan(outer_iterator, the_sample_rate / Hz)
 end
 
-export plan!
-
+export Plan
 
 """
-    make_plan(the_sample_rate, triples, maximum_volume = 1.0)
+    plan_within(a_schedule::AudioSchedule, the_sample_rate; maximum_volume = 1.0)
 
-A convenience function. `triples` should be a list of triples in the form
-
-    (synthesizer, start_time, envelope)
-
-Create a test schedule with [`AudioSchedule`](@ref) with `the_sample_rate`,
-[`schedule!`](@ref) all the triples, find the [`extrema!`](@ref) of the
-test plan, then repeat all the previous steps, [`readjust!`](@ref)ing the volume to
-`maximum_volume`.
+Make a plan, then adjust the volume to `maximum_volume`.
 
 ```jldoctest
 julia> using AudioSchedules
 
 julia> using Unitful: s, Hz
 
-julia> envelope = Envelope((0, 0.25, 0), (0.05s, 0.95s), (Line, Line));
+julia> schedule = AudioSchedule();
 
-julia> plan = make_plan(44100Hz, [
-            (StrictMap(sin, Cycles(440Hz)), 0s, envelope),
-            (StrictMap(sin, Cycles(440Hz)), 1s, envelope),
-            (StrictMap(sin, Cycles(550Hz)), 1s, envelope)
-        ]);
+julia> note = StrictMap(sin, Cycles(440Hz)), 0s, Envelope((1, 1), (1s,), (Line,));
 
-julia> extrema!(plan) .≈ (-1.0, 0.99895193)
+julia> schedule!(schedule, note...); schedule!(schedule, note...)
+
+julia> plan = plan_within(schedule, 44100Hz);
+
+julia> extrema!(plan) .≈ (-1.0, 1.0)
 (true, true)
 ```
 """
-function make_plan(the_sample_rate, triples; maximum_volume = 1.0)
-    test_schedule = AudioSchedule(the_sample_rate)
-    for triple in triples
-        schedule!(test_schedule, triple...)
-    end
-    schedule = AudioSchedule(the_sample_rate)
-    for triple in triples
-        schedule!(schedule, triple...)
-    end
-    plan = plan!(schedule)
-    readjust!(plan!(test_schedule), plan; maximum_volume = maximum_volume)
-    plan
+function plan_within(a_schedule::AudioSchedule, the_sample_rate; maximum_volume = 1.0)
+    lower, upper = extrema!(Plan(a_schedule, the_sample_rate))
+    final_plan = Plan(a_schedule, the_sample_rate)
+    map!(
+        let scale = 1.0 / max(abs(lower), abs(upper))
+            @inline function (amplitude)
+                amplitude * scale
+            end
+        end,
+        final_plan
+    )
+    final_plan
 end
-export make_plan
+export plan_within
 
 include("equal_loudness.jl")
 

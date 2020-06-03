@@ -31,14 +31,10 @@ function justly!(schedule, song, key, seconds_per_beat)
 end
 
 function justly(filename; sample_rate = 44100Hz, key = 440Hz, seconds_per_beat = 1s)
-    test_schedule = AudioSchedule(sample_rate)
-    parsed = parsefile(string(filename, ".json"))
-    justly!(test_schedule, parsed, key, seconds_per_beat)
-    final = AudioSchedule(sample_rate)
-    justly!(final, parsed, key, seconds_per_beat)
-    final_plan = plan!(final)
-    readjust!(plan!(test_schedule), final_plan)
-    save(string(filename, ".ogg"), read(final_plan, length(final_plan)))
+    schedule = AudioSchedule()
+    justly!(schedule, parsefile(string(filename, ".json")), key, seconds_per_beat)
+    plan = plan_within(schedule, sample_rate)
+    save(string(filename, ".ogg"), read(plan, length(plan)))
 end
 
-justly("test", seconds_per_beat = 0.25s)
+justly("test", seconds_per_beat = 1s)
