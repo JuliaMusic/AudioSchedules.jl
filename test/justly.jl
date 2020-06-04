@@ -3,6 +3,7 @@ using FileIO: save
 using JSON: parsefile
 import LibSndFile
 using Unitful: Hz, s
+using Waveforms: sawtoothwave
 
 function make_envelope(duration, level = 1, ramp = 0.05s)
     Envelope((0, level, level, 0), (ramp, duration - ramp - ramp, ramp), (Line, Line, Line))
@@ -21,7 +22,7 @@ function justly!(schedule, song, key, seconds_per_beat)
         for note in notes[2:end]
             schedule!(
                 schedule,
-                equal_loudness(StrictMap(sin, Cycles((key * make_interval(note))))),
+                equal_loudness(StrictMap(sawtoothwave, Cycles((key * make_interval(note))))),
                 clock,
                 make_envelope(note["beats"] * seconds_per_beat),
             )
@@ -37,4 +38,4 @@ function justly(filename; sample_rate = 44100Hz, key = 440Hz, seconds_per_beat =
     save(string(filename, ".ogg"), read(plan, length(plan)))
 end
 
-justly("test", seconds_per_beat = 1s)
+justly("all_i_have_to_do_is_dream", seconds_per_beat = 1.25s)
