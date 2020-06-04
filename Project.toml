@@ -13,6 +13,7 @@ Unitful = "1986cc42-f94f-5a68-af5c-568840ba703d"
 DataStructures = "0.17"
 Interpolations = "0.12"
 SampledSignals = "2"
+Unitful = "0.17, 1"
 
 [extras]
 Documenter = "e30172f5-a6a5-5a46-863b-614d45cd2de4"
