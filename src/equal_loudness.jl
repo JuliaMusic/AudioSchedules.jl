@@ -103,7 +103,7 @@ function equivalent_sound_pressure(phon, frequency)
     linear = LINEAR_INTERPOLATOR(log_10_frequency)
     threshold = THRESHOLD_INTERPOLATOR(log_10_frequency)
     A_f = 0.00447 * (10^(0.025 * phon) - 1.15) + (0.4 * (10^((threshold + linear) / 10 - 9)))^exponent
-    ((10 / exponent * log10(A_f)) - linear + 94)dB *  20μPa
+    ((10 / exponent * log10(A_f)) - linear + 94)dB * 20μPa
 end
 
 const MAXIMUM_PRESSURE = equivalent_sound_pressure(40, 20Hz)

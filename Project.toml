@@ -6,12 +6,14 @@ version = "0.0.1"
 [deps]
 DataStructures = "864edb3b-99cc-5e75-8d2d-829cb0a9cfe8"
 Interpolations = "a98d9a8b-a2ab-59e6-89dd-64a1c18fca59"
+RegularExpressions = "27faeba3-bc54-5829-b163-df8cb949fe88"
 SampledSignals = "bd7594eb-a658-542f-9e75-4c4d8908c167"
 Unitful = "1986cc42-f94f-5a68-af5c-568840ba703d"
 
 [compat]
 DataStructures = "0.17"
 Interpolations = "0.12"
+RegularExpressions = "0.1"
 SampledSignals = "2"
 Unitful = "0.17, 1"
 

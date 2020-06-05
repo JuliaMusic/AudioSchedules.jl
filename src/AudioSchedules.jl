@@ -5,6 +5,7 @@ using Base: Generator, EltypeUnknown, IsInfinite, HasEltype, HasLength, RefValue
 using Base.Iterators: Repeated, repeated, Stateful
 using DataStructures: SortedDict
 using Interpolations: CubicSplineInterpolation
+using RegularExpressions: capture, of, pattern, raw, short
 import SampledSignals: samplerate, nchannels, unsafe_read!
 using SampledSignals: Hz, s, SampleSource
 const TAU = 2 * pi
@@ -558,6 +559,53 @@ function plan_within(a_schedule::AudioSchedule, the_sample_rate; maximum_volume 
     final_plan
 end
 export plan_within
+
+const DIGITS = of(:maybe, raw("-")), of(:some, short(:digit))
+const QUOTIENT = pattern(
+    of(:maybe, capture(DIGITS..., name = "numerator")),
+    of(:maybe, raw("/"), capture(DIGITS..., name = "denominator")),
+    of(:maybe, "o", capture(DIGITS..., name = "octave")),
+)
+
+get_parse(something, default) = parse(Int, something)
+get_parse(::Nothing, default) = default
+
+"""
+    q"interval"
+
+Create a musical interval. You can specify a numerator (which defaults to 1)
+and denominator (which defaults to 1) and an octave shift (which defaults to 0).
+
+```jldoctest
+julia> using AudioSchedules
+
+julia> q"1"
+1//1
+
+julia> q"3/2"
+3//2
+
+julia> q"2/3o1"
+4//3
+
+julia> q"2/3o-1"
+1//3
+
+julia> q"o2"
+4//1
+```
+"""
+macro q_str(interval_string::AbstractString)
+    a_match = match(QUOTIENT, interval_string)
+    if a_match === nothing
+        error("Can't parse interval $interval_string")
+    end
+    esc(
+        get_parse(a_match["numerator"], 1) // get_parse(a_match["denominator"], 1) *
+        (2 //1) ^ get_parse(a_match["octave"], 0)
+    )
+end
+export @q_str
 
 include("equal_loudness.jl")
 

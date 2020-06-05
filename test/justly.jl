@@ -1,41 +1,56 @@
-using AudioSchedules
+using AudioSchedules: AudioSchedule, Cycles, Envelope, Line, plan_within, @q_str, schedule!, StrictMap
 using FileIO: save
-using JSON: parsefile
 import LibSndFile
 using Unitful: Hz, s
 using Waveforms: sawtoothwave
 
-function make_envelope(duration, level = 1, ramp = 0.05s)
-    Envelope((0, level, level, 0), (ramp, duration - ramp - ramp, ramp), (Line, Line, Line))
-end
-
-function make_interval(note)
-    note["numerator"] / note["denominator"] * 2.0^note["octave"]
-end
-
-function justly!(schedule, song, key, seconds_per_beat)
+function justly(chords, the_sample_rate;
+    key = 440Hz,
+    seconds_per_beat = 1s,
+    ramp = 0.1s,
+)
+    schedule = AudioSchedule()
     clock = 0.0s
-    for chord in song
-        notes = chord["notes"]
-        modulation = notes[1]
-        key = key * make_interval(modulation)
-        for note in notes[2:end]
+    for notes in chords
+        ratio, beats = notes[1]
+        key = key * ratio
+        for (ratio, beats) in notes[2:end]
             schedule!(
                 schedule,
-                equal_loudness(StrictMap(sawtoothwave, Cycles((key * make_interval(note))))),
+                StrictMap(sawtoothwave, Cycles(key * ratio)),
                 clock,
-                make_envelope(note["beats"] * seconds_per_beat),
+                Envelope(
+                    (0, 1, 1, 0),
+                    (ramp, beats * seconds_per_beat - ramp - ramp, ramp),
+                    (Line, Line, Line),
+                ),
             )
         end
-        clock = clock + modulation["beats"] * seconds_per_beat
+        clock = clock + beats * seconds_per_beat
     end
+    plan_within(schedule, the_sample_rate)
 end
 
-function justly(filename; sample_rate = 44100Hz, key = 440Hz, seconds_per_beat = 1s)
-    schedule = AudioSchedule()
-    justly!(schedule, parsefile(string(filename, ".json")), key, seconds_per_beat)
-    plan = plan_within(schedule, sample_rate)
-    save(string(filename, ".ogg"), read(plan, length(plan)))
-end
+cd(@__DIR__)
 
-justly("all_i_have_to_do_is_dream", seconds_per_beat = 1.25s)
+SONG = [
+    [q"1" => 4, q"1" => 4, q"3/2" => 8, q"5/4o1" => 16],
+    [q"15/8o-1" => 4, q"1" => 4],
+    [q"2/3o1" => 4, q"4/5" => 16, q"2/3o1" => 4],
+    [q"4/5" => 4, q"3/2" => 4],
+    [q"2/3o1" => 4, q"5/4" => 4, q"o1" => 4],
+    [q"3/2o-1" => 4, q"3/2" => 20, q"5/4o1" => 4],
+    [q"3/2o-1" => 8, q"5/4" => 8, q"3/2o1" => 8],
+    [q"2/3o1" => 4, q"1" => 4, q"5/4o1" => 16],
+    [q"15/8o-1" => 4, q"1" => 4],
+    [q"2/3o1" => 4, q"4/5" => 8, q"2/3o1" => 4],
+    [q"4/5" => 4, q"3/2" => 12],
+    [q"3/2o-1" => 2, q"5/4" => 8, q"3/2" => 8, q"7/4o1" => 2],
+    [q"1" => 2, q"3/2o1" => 2],
+    [q"1" => 2, q"5/4o1" => 2],
+    [q"1" => 2, q"o1" => 2],
+    [q"2/3o1" => 8, q"1" => 8, q"5/4" => 8, q"3/2" => 8, q"o1" => 8]
+]
+
+plan = justly(SONG, 44100Hz, key = 220Hz, seconds_per_beat = 0.4s)
+save("test.ogg", read(plan, length(plan)))
