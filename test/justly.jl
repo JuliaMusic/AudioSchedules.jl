@@ -1,9 +1,9 @@
-using AudioSchedules: AudioSchedule, Cycles, Envelope, Line, Plan, plan_within, @q_str, repeat!, schedule!, StrictMap
-using FileIO: load, save
+using AudioSchedules: AudioSchedule, Cycles, Envelope, Hook, Line, Plan, plan_within, @q_str, repeat!, schedule!, StrictMap
+using FileIO: save
 import LibSndFile
+import SampledSignals
 using Unitful: Hz, s
 using Waveforms: sawtoothwave
-import SampledSignals
 
 cd("/home/brandon/Music")
 
@@ -26,9 +26,9 @@ function justly(chords, the_sample_rate;
                 StrictMap(sawtoothwave, Cycles(key * ratio)),
                 clock,
                 Envelope(
-                    (0, 1, 1, 0),
-                    (ramp, beats * seconds_per_beat - ramp - ramp, ramp),
-                    (Line, Line, Line),
+                    (0, 1, 0),
+                    (ramp, beats * seconds_per_beat - ramp),
+                    (Line, Hook(-1/s, -1/0.05s))
                 ),
             )
         end
@@ -38,99 +38,64 @@ function justly(chords, the_sample_rate;
 end
 
 SONG = [
-    [q"1" => 4, q"1" => 4, q"3/2" => 16, q"5/4o1" => 4], # darling you can
-    [q"3/4" => 2, q"5/4" => 2, q"3/2o1" => 2], # count on
-    [q"4/3" => 6, q"1" => 6, q"5/4o1" => 6], # me till the sun dries
-    [q"3/4" => 2, q"5/4" => 2, q"3/2o1" => 2], # up the
-    [q"4/3" => 2, q"1" => 4, q"5/4o1" => 2], # sea
-    [q"2/3" => 2, q"5/4o1" => 2, q"o2" => 2], # until
-    [q"15/8" => 2, q"6/5" => 2, q"3/2" => 2, q"o1" => 2], # then I'll
-    [q"8/9" => 2, q"3/2o-1" => 2, q"6/5" => 2, q"o1" => 2], # always
-    [q"9/5o-1" => 2, q"1" => 4, q"3/2" => 2, q"5/4o1" => 2], # be de
-    [q"2/3" => 2, q"5/4o1" => 2, q"o2" => 2], # vo
-    [q"9/8" => 4, q"5/4" => 4, q"o1" => 6, q"3/2o1" => 4], # ted to
-    [q"4/3" => 2, q"1" => 2, q"5/4o1" => 2], # you
+    [1 => 1, 1 => 4],
+    [1 => 1, 3/2 => 3],
+    [1 => 2, q"5/4o1" => 2],
+    [3/4 => 1, 5/4 => 4],
+    [1 => 1, q"o1" => 3],
+    [1 => 2, q"3/2o1" => 1],
+    [q"5/9o1" => 1, 1 => 4],
+    [1 => 1, 3/2 => 3],
+    [1 => 2, q"6/5o1" => 1],
+    [6/5 => 1, q"3/2o-1" => 4],
+    [1 => 1, 5/4 => 3],
+    [1 => 2, q"o1" => 1],
+    [2/3 => 1, 5/4 => 4],
+    [1 => 1, q"o1" => 3],
+    [1 => 2, q"3/2o1" => 1],
+    [3/4 => 1, 3/2 => 4],
+    [1 => 1, q"5/4o1" => 3],
+    [1 => 2, q"o2" => 1],
+    [3/2 => 1, 1 => 4],
+    [1 => 1, 3/2 => 3],
+    [1 => 2, q"5/4o1" => 1],
+    [2/3 => 1, 1 => 4],
+    [1 => 1, q"5/4o1" => 3],
+    [1 => 2, q"3/2o1" => 1],
 
-    [q"1" => 4, q"1" => 4, q"3/2" => 16, q"5/4o1" => 4], # I'll be your through
-    [q"3/4" => 2, q"5/4" => 2, q"3/2o1" => 2], # endless
-    [q"4/3" => 6, q"1" => 6, q"5/4o1" => 6], # time. I'll adore your
-    [q"3/4" => 2, q"5/4" => 2, q"3/2o1" => 2], # charms sub
-    [q"4/3" => 2, q"1" => 4, q"5/4o1" => 2], # lime
-    [q"2/3" => 2, q"5/4o1" => 2, q"o2" => 2], # Guess by
-    [q"15/8" => 2, q"6/5" => 2, q"3/2" => 2, q"o1" => 2], # now you
-    [q"8/9" => 2, q"3/2o-1" => 2, q"6/5" => 2, q"o1" => 2], # know that
-    [q"9/5o-1" => 2, q"1" => 4, q"3/2" => 2, q"5/4o1" => 2], # I'm de
-    [q"2/3" => 2, q"5/4o1" => 2, q"o2" => 2], # vo
-    [q"9/8" => 4, q"5/4" => 4, q"o1" => 6, q"3/2o1" => 4], # ted to
-    [q"4/3" => 2, q"1" => 2, q"5/4o1" => 2], # you
-
-    [q"5/9" => 4, q"3/2" => 4, q"6/5o1" => 4, q"o2" => 4], # I'll never hurt you
-    [q"9/8o1" => 2, q"1" => 4, q"6/5" => 2, q"3/2" => 2], # I'll never
-    [q"2/3" => 2, q"o1" => 4, q"6/5o1" => 2], # lie
-    [q"4/3" => 2, q"6/5" => 2, q"o1" => 4], # I'll never
-    [q"2/3" => 2, q"7/4" => 2, q"o1" => 6, q"5/4o1" => 2], # be un
-    [q"4/3" => 2, q"1" => 4, q"5/4o1" => 4], # true
-    [q"1" => 2, q"7/4" => 2], #
-    [q"5/9" => 4, q"3/2" => 4, q"6/5o1" => 4, q"o2" => 4], # I'll never give you
-    [q"9/8o1" => 2, q"1" => 4, q"6/5" => 2, q"3/2" => 2], # reasons to
-    [q"2/3" => 2, q"o1" => 6, q"6/5o1" => 2], # cry
-    [q"4/3" => 4, q"1" => 8, q"5/4" => 4, q"7/4" => 4], # I'd be unhappy if
-    [q"2/3" => 2, q"o1" => 4, q"5/4o1" => 4], # you were
-    [q"1" => 2, q"7/4" => 2], # blue
-
-    [q"4/3" => 4, q"1" => 4, q"3/2" => 16, q"5/4o1" => 4], # Through the years our
-    [q"3/4" => 2, q"5/4" => 2, q"3/2o1" => 2], # love will
-    [q"4/3" => 6, q"1" => 6, q"5/4o1" => 6], # grow. Like a river,
-    [q"3/4" => 2, q"5/4" => 2, q"3/2o1" => 2], # it will
-    [q"4/3" => 2, q"1" => 4, q"5/4o1" => 2], # flow.
-    [q"2/3" => 2, q"5/4o1" => 2, q"o2" => 2], # It can't
-    [q"15/8" => 2, q"6/5" => 2, q"3/2" => 2, q"o1" => 2], # die be
-    [q"8/9" => 2, q"3/2o-1" => 2, q"6/5" => 2, q"o1" => 2], # cause I'm
-    [q"9/5o-1" => 2, q"1" => 4, q"3/2" => 2, q"5/4o1" => 2], # so de
-    [q"2/3" => 2, q"5/4o1" => 2, q"o2" => 2], # vo
-    [q"9/8" => 4, q"5/4" => 4, q"o1" => 6, q"3/2o1" => 4], # ted to
-    [q"4/3" => 2, q"1" => 2, q"5/4o1" => 2], # you
-
-    [q"5/9" => 4, q"3/2" => 4, q"6/5o1" => 4, q"o2" => 4], # I'll never hurt you
-    [q"9/8o1" => 2, q"1" => 4, q"6/5" => 2, q"3/2" => 2], # I'll never
-    [q"2/3" => 2, q"o1" => 4, q"6/5o1" => 2], # lie
-    [q"4/3" => 2, q"6/5" => 2, q"o1" => 4], # I'll never
-    [q"2/3" => 2, q"7/4" => 2, q"o1" => 6, q"5/4o1" => 2], # be un
-    [q"4/3" => 2, q"1" => 4, q"5/4o1" => 4], # true
-    [q"1" => 2, q"7/4" => 2], #
-    [q"5/9" => 4, q"3/2" => 4, q"6/5o1" => 4, q"o2" => 4], # I'll never give you
-    [q"9/8o1" => 2, q"1" => 4, q"6/5" => 2, q"3/2" => 2], # reasons to
-    [q"2/3" => 2, q"o1" => 6, q"6/5o1" => 2], # cry
-    [q"4/3" => 4, q"1" => 8, q"5/4" => 4, q"7/4" => 4], # I'd be unhappy if
-    [q"2/3" => 2, q"o1" => 4, q"5/4o1" => 4], # you were
-    [q"1" => 2, q"7/4" => 2], # blue
-
-    [q"4/3" => 4, q"1" => 4, q"3/2" => 16, q"5/4o1" => 4], # Through the years our
-    [q"3/4" => 2, q"5/4" => 2, q"3/2o1" => 2], # love will
-    [q"4/3" => 6, q"1" => 6, q"5/4o1" => 6], # grow. Like a river,
-    [q"3/4" => 2, q"5/4" => 2, q"3/2o1" => 2], # it will
-    [q"4/3" => 2, q"1" => 4, q"5/4o1" => 2], # flow.
-    [q"2/3" => 2, q"5/4o1" => 2, q"o2" => 2], # It can't
-    [q"15/8" => 2, q"6/5" => 2, q"3/2" => 2, q"o1" => 2], # die be
-    [q"8/9" => 2, q"3/2o-1" => 2, q"6/5" => 2, q"o1" => 2], # cause I'm
-    [q"9/5o-1" => 2, q"1" => 4, q"3/2" => 2, q"5/4o1" => 2], # so de
-    [q"2/3" => 2, q"5/4o1" => 2, q"o2" => 2], # vo
-    [q"9/8" => 4, q"5/4" => 4, q"o1" => 8, q"3/2o1" => 4], # ted to
-    [q"4/3" => 4, q"1" => 4, q"5/4o1" => 4], # you
+    [q"o2" => -32],
+    [1 => 1, q"o1" => 1],
+    [1 => 0.5, q"5/4" => 0.5],
+    [1 => 0.5, q"4/3" => 0.5],
+    [1 => 2, q"3/2" => 2],
+    [3/4 => 1, q"5/4o1" => 1],
+    [1 => 0.5, q"o1" => 0.5],
+    [1 => 0.5, q"9/8o1" => 0.5],
+    [1 => 2, q"5/4o1" => 2],
+    [q"5/9o1" => 1, q"6/5o1" => 1],
+    [1 => 0.5, q"3/2" => 0.5],
+    [1 => 0.5, q"8/5" => 0.5],
+    [1 => 2, q"9/5" => 2],
+    [6/5 => 1, 3/2 => 1],
+    [1 => 0.5, 5/4 => 0.5],
+    [1 => 0.5, 4/3 => 0.5],
+    [1 => 2, 3/2 => 2],
+    [4/3 => 1, 5/4 => 1],
+    [1 => 0.5, 5/4 => 0.5],
+    [1 => 0.5, 11/8 => 0.5],
+    [1 => 1, 3/2 => 1],
+    [1 => 1, 1 => 1],
+    [3/4 => 1, 5/4 => 1],
+    [1 => 0.5, 5/4 => 0.5],
+    [1 => 0.5, 4/3 => 0.5],
+    [1 => 2, 3/2 => 2],
+    [3/4 => 1, q"o1" => 1],
+    [1 => 0.5, q"o1" => 0.5],
+    [1 => 0.5, q"9/8o1" => 0.5],
+    [1 => 1, q"5/4o1" => 1],
+    [1 => 1, 7/4 => 1],
+    [4/3 => 4, 5/4 => 4]
 ]
 
-plan = justly(SONG, 44100Hz, key = 161.81Hz, seconds_per_beat = BEAT)
-save("music.wav", read(plan, length(plan)))
-
-audio_schedule = AudioSchedule()
-
-clunk = load("clunk.wav")
-tap = load("tap.wav")
-brrp = load("brrp.wav")
-
-repeat!(audio_schedule, brrp, 0s, BEAT * 2, BEATS)
-repeat!(audio_schedule, clunk, BEAT, BEAT * 2, BEATS)
-repeat!(audio_schedule, clunk, 3 * BEAT / 2, BEAT * 2, BEATS)
-
-plan = plan_within(audio_schedule, 44100Hz)
-save("percussion.wav", read(plan, length(plan)))
+plan = justly(SONG, 44100Hz, key = 161.81Hz, seconds_per_beat = 0.5s)
+save("court.wav", read(plan, length(plan)))

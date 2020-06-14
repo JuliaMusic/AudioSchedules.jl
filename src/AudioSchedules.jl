@@ -15,34 +15,15 @@ using Base: Generator, EltypeUnknown, IsInfinite, HasEltype, HasLength, RefValue
 using Base.Iterators: cycle, Repeated, repeated, Stateful
 using DataStructures: SortedDict
 using Interpolations: CubicSplineInterpolation
+using NLsolve: nlsolve
 using RegularExpressions: capture, of, pattern, raw, short
 import SampledSignals: samplerate, nchannels, unsafe_read!
-using SampledSignals: Hz, s, SampleSource, SampleBuf
+using SampledSignals: SampleSource, SampleBuf
 const TAU = 2 * pi
-using Unitful: Hz, μPa, dB
+using Unitful: Hz, μPa, dB, s
 
-@inline function zip_unrolled(expected, them::Vararg{Any})
-    map(first, them), zip_unrolled(expected, map(tail, them)...)...
-end
-@inline function zip_unrolled(expected, them::Vararg{Tuple{}})
-    ()
-end
-@inline function zip_unrolled(expected, them::Vararg{Any,0})
-    ntuple((@inline function (thing)
-        ()
-    end), expected)
-end
+include("utilities.jl")
 
-@inline function add(first_one, rest...)
-    +(first_one, rest...)
-end
-@inline function add()
-    0.0
-end
-
-function get_duration(buffer::SampleBuf)
-    ((length(buffer) - 1) / buffer.samplerate)s
-end
 """
     get_duration(synthesizer)
 
@@ -50,14 +31,23 @@ Get the duration of a synthesizer in seconds, for synthesizers with an inherent 
 Note that the synthesizer cannot end during the duration (which means there must be one more
 sample at the end of the duration).
 """
-get_duration
+function get_duration(buffer::SampleBuf)
+    ((length(buffer) - 1) / buffer.samplerate)s
+end
 export get_duration
 
+"""
+    make_iterator(synthesizer, the_sample_rate)
+
+Return an iterator that will the play the `synthesizer` at `the_sample_rate`
+"""
 function make_iterator(buffer::SampleBuf, the_sample_rate)
     # TODO: support resampling
     @assert buffer.samplerate == the_sample_rate / Hz
     cycle(buffer.data)
 end
+
+export make_iterator
 
 mutable struct StrictStateful{Iterator,Item,State}
     iterator::Iterator
@@ -79,54 +69,17 @@ end
     iterator.item_state = (item, state)
 end
 
-"""
-    make_iterator(synthesizer, the_sample_rate)
-
-Return an iterator that will the play the `synthesizer` at `the_sample_rate`
-"""
-make_iterator
-export make_iterator
-
 struct StrictMapIterator{AFunction,Iterators}
     a_function::AFunction
     iterators::Iterators
-end
-
-IteratorSize(::Type{<:StrictMapIterator}) = IsInfinite
-
-IteratorEltype(::Type{<:StrictMapIterator}) = EltypeUnknown
-
-@inline function iterate(something::StrictMapIterator, state...)
-    items, states = zip_unrolled(Val(2), map(iterate, something.iterators, state...)...)
-    something.a_function(items...), states
-end
-
-@inline flatten_unrolled(first_one, rest...) = first_one..., flatten_unrolled(rest...)...
-@inline flatten_unrolled() = ()
-
-@inline function take_tuple(items, model)
-    kept, trashed = take_tuple(tail(items), tail(model))
-    (first(items), kept...), trashed
-end
-@inline function take_tuple(items, ::Tuple{})
-    (), items
-end
-
-@inline function partition_models(items, first_model, more_models...)
-    kept, trashed = take_tuple(items, first_model)
-    kept, partition_models(trashed, more_models...)...
-end
-@inline partition_models(items) = ()
-
-function StrictMapIterator(
-    a_function,
-    maps::Tuple{StrictMapIterator,Vararg{StrictMapIterator}},
-)
-    functions = map(a_map -> a_map.a_function, maps)
-    iteratorss = map(a_map -> a_map.iterators, maps)
-    models = map(iterators -> ntuple(iterator -> missing, length(iterators)), iteratorss)
-    StrictMapIterator(
-        let a_function = a_function, functions = functions, models = models
+    function StrictMapIterator(
+        a_function,
+        maps
+    )
+        functions = map(get_function, maps)
+        iteratorss = map(get_iterators, maps)
+        models = map(iterators -> ntuple(iterator -> missing, length(iterators)), iteratorss)
+        combine = let a_function = a_function, functions = functions, models = models
             @inline function (clump...)
                 a_function(map(
                     let a_function = a_function
@@ -138,9 +91,25 @@ function StrictMapIterator(
                     partition_models(clump, models...),
                 )...)
             end
-        end,
-        flatten_unrolled(iteratorss...),
-    )
+        end
+        mushed = flatten_unrolled(iteratorss...)
+        new{typeof(combine), typeof(mushed)}(combine, mushed)
+    end
+end
+
+get_function(something::StrictMapIterator) = something.a_function
+get_iterators(something::StrictMapIterator) = something.iterators
+get_function(something) = @inline function (something)
+    something
+end
+get_iterators(something) = (something,)
+
+IteratorSize(::Type{<:StrictMapIterator}) = IsInfinite
+IteratorEltype(::Type{<:StrictMapIterator}) = EltypeUnknown
+
+@inline function iterate(something::StrictMapIterator, state...)
+    items, states = zip_unrolled(Val(2), map(iterate, something.iterators, state...)...)
+    something.a_function(items...), states
 end
 
 """
@@ -237,6 +206,79 @@ function make_iterator(cycles::Cycles, the_sample_rate)
 end
 
 """
+    Grow(start, rate)
+
+Exponentially grow or decay from `start`, at a continuous `rate`.
+"""
+struct Grow
+    start::Float64
+    rate::Float64
+    Grow(start, rate) = new(start, (rate)s)
+end
+
+export Grow
+
+struct GrowIterator
+    start::Float64
+    multiplier::Float64
+end
+
+IteratorSize(::Type{GrowIterator}) = IsInfinite
+
+IteratorEltype(::Type{GrowIterator}) = HasEltype
+
+eltype(::Type{GrowIterator}) = Float64
+
+@inline function iterate(grow::GrowIterator, state = grow.start)
+    state, state * grow.multiplier
+end
+
+function make_iterator(grow::Grow, the_sample_rate)
+    GrowIterator(grow.start, ℯ^(grow.rate / (the_sample_rate / Hz)))
+end
+
+"""
+    Hook(rate, slope)
+
+Make a hook shape, with an exponential curve growing at `rate`, followed by a line with
+`slope`. Useful as part as an [`Envelope`](@ref).
+
+```jldoctest hook
+julia> using AudioSchedules
+
+julia> using Unitful: s, Hz
+
+julia> audio_schedule = AudioSchedule();
+
+julia> envelope = Envelope((0.0, 1.0, 0.0), (0.05s, 0.95s), (Line, Hook(-1/s, -1/0.05s),));
+
+julia> schedule!(audio_schedule, StrictMap(sin, Cycles(440Hz)), 0s, envelope)
+
+julia> plan = plan_within(audio_schedule, 44100Hz);
+
+julia> read(plan, length(plan));
+```
+
+Not all hooks are solavable:
+
+```jldoctest hook
+julia> envelope = Envelope((1.0, 0.0), (1s,), (Hook(-1/1s, -1/1s),));
+
+julia> schedule!(audio_schedule, StrictMap(sin, Cycles(440Hz)), 0s, envelope)
+
+julia> Plan(audio_schedule, 44100Hz)
+ERROR: Hook segments don't meet
+```
+"""
+struct Hook
+    rate::Float64
+    slope::Float64
+    Hook(rate, slope) = new((rate)s, (slope)s)
+end
+
+export Hook
+
+"""
     Envelope(levels, durations, shapes)
 
 Shapes are all functions which return synthesizers:
@@ -259,6 +301,24 @@ Line(0.0, 1.0, 0.05 s)
 Line(1.0, 1.0, 0.9 s)
 Line(1.0, 0.0, 0.05 s)
 ```
+
+```jldoctest
+julia> using AudioSchedules
+
+julia> using Unitful: s, Hz
+
+julia> audio_schedule = AudioSchedule();
+
+julia> envelope = Envelope((0.0, 1.0, 0.0), (1s, 1s), (Line, Line));
+
+julia> schedule!(audio_schedule, StrictMap(sin, Cycles(440Hz)), 0s, envelope)
+
+julia> plan = Plan(audio_schedule, 44100Hz);
+
+julia> read(plan, length(plan));
+```
+
+You can also use compound shapes like [`Hook`](@ref).
 """
 struct Envelope{Levels,Durations,Shapes}
     levels::Levels
@@ -367,11 +427,7 @@ function extrema!(plan::Plan)
 end
 export extrema!
 
-@noinline function inner_fill!(
-    a_map::StrictMapIterator{<:Any,<:NTuple{<:Any,StrictStateful}},
-    buf,
-    a_range,
-)
+@noinline function inner_fill!(a_map::MapOfStatefuls, buf, a_range)
     a_function = a_map.a_function
     statefuls = a_map.iterators
     iterators, items, states = zip_unrolled(Val(3), map(detach, statefuls)...)
@@ -423,51 +479,14 @@ end
 """
     AudioSchedule(the_sample_rate)
 
-Create an `AudioSchedule`.
+Create an `AudioSchedule`. Add synthesizers to the audio schedule with [`schedule!`](@ref),
+then use [`Plan`](@ref) to play the schedule.
 
 ```jldoctest audio_schedule
 julia> using AudioSchedules
 
-julia> using Unitful: s, Hz
-
-julia> audio_schedule = AudioSchedule();
-```
-
-Add a synthesizer to the schedule with [`schedule!`](@ref).
-
-```jldoctest audio_schedule
-julia> envelope = Envelope((0, 0.25, 0), (0.05s, 0.95s), (Line, Line));
-
-julia> schedule!(audio_schedule, StrictMap(sin, Cycles(440Hz)), 0s, envelope)
-
-julia> schedule!(audio_schedule, StrictMap(sin, Cycles(550Hz)), 1s, 1s)
-```
-
-Then, you can create a `SampledSource` from the schedule using [`Plan`](@ref).
-
-```jldoctest audio_schedule
-julia> plan = Plan(audio_schedule, 44100Hz);
-```
-
-You can find the number of samples in a `Plan` with length.
-
-```jldoctest audio_schedule
-julia> the_length = length(plan)
-88200
-```
-
-You can use the plan as a source for samples.
-
-```jldoctest audio_schedule
-julia> read(plan, the_length);
-```
-
-You can't plan an empty schedule
-
-```jldoctest audio_schedule
-julia> Plan(AudioSchedule(), 44100Hz)
-ERROR: The schedule was empty
-[...]
+julia> AudioSchedule()
+AudioSchedule(Tuple{Any,Any,Any}[])
 ```
 """
 AudioSchedule() = AudioSchedule(TRIPLES())
@@ -479,8 +498,18 @@ export AudioSchedule
     schedule!(audio_schedule::AudioSchedule, synthesizer, start_time, envelope::Envelope)
 
 Schedule an audio synthesizer to be added to the `audio_schedule`, starting at `start_time` with
-`duration`, or with duration contained in an [`Envelope`](@ref). If no duration is given,
+`duration`, or with the duration contained in an [`Envelope`](@ref). If no duration is given,
 use [`get_duration`](@ref) to determine a duration.
+
+```jldoctest audio_schedule
+julia> using AudioSchedules
+
+julia> using Unitful: s, Hz
+
+julia> audio_schedule = AudioSchedule();
+
+julia> schedule!(audio_schedule, StrictMap(sin, Cycles(440Hz)), 0s, 1s)
+```
 """
 function schedule!(
     audio_schedule::AudioSchedule,
@@ -493,35 +522,96 @@ function schedule!(
 end
 export schedule!
 
-function add_to_plan!(
-    the_sample_rate,
-    orchestra,
-    triggers,
-    stateful_iterator::StrictStateful,
+function shape_wave(stateful_wave, shape_synthesizer, the_sample_rate)
+    StrictMapIterator(
+        *,
+        (stateful_wave, StrictStateful(make_iterator(shape_synthesizer, the_sample_rate))),
+    )
+end
+
+function add_segment!(
+    shape,
+    duration,
+    start_level,
+    end_level,
     start_time,
-    envelope::Envelope,
+    stateful_wave,
+    the_sample_rate,
+    arguments...
 )
-    durations = envelope.durations
-    levels = envelope.levels
-    shapes = envelope.shapes
+    add_to_plan!(
+        start_time,
+        duration,
+        shape_wave(
+            stateful_wave,
+            shape(start_level, end_level, duration),
+            the_sample_rate,
+        ),
+        the_sample_rate,
+        arguments...
+    )
+end
+
+function add_segment!(
+    hook::Hook,
+    duration,
+    start_level,
+    end_level,
+    start_time,
+    stateful_wave,
+    the_sample_rate,
+    arguments...
+)
+    rate = hook.rate
+    duration_unitless = duration / s
+    solved = nlsolve([duration_unitless / 2], autodiff = :forward) do residuals, arguments
+        first_period = arguments[1]
+        residuals[1] =
+            end_level + hook.slope * (first_period - duration_unitless) -
+            start_level * exp(rate * first_period)
+    end
+    if !solved.f_converged
+        error("Hook segments don't meet")
+    end
+    first_period = (solved.zero[1])s
+    second_period = duration - first_period
+    add_to_plan!(
+        start_time,
+        first_period,
+        shape_wave(stateful_wave, Grow(start_level, rate/s), the_sample_rate),
+        the_sample_rate,
+        arguments...
+    )
+    add_to_plan!(
+        start_time + first_period,
+        second_period,
+        shape_wave(
+            stateful_wave,
+            Line(start_level * exp(rate/s * first_period), end_level, second_period),
+            the_sample_rate,
+        ),
+        the_sample_rate,
+        arguments...
+    )
+end
+
+function add_to_plan!(
+    start_time,
+    duration::Envelope,
+    arguments...
+)
+    durations = duration.durations
+    levels = duration.levels
+    shapes = duration.shapes
     for index = 1:length(durations)
         duration = durations[index]
-        add_to_plan!(
-            the_sample_rate,
-            orchestra,
-            triggers,
-            StrictMapIterator(
-                *,
-                (
-                    stateful_iterator,
-                    StrictStateful(make_iterator(
-                        shapes[index](levels[index], levels[index+1], duration),
-                        the_sample_rate,
-                    )),
-                ),
-            ),
-            start_time,
+        add_segment!(
+            shapes[index],
             duration,
+            levels[index],
+            levels[index+1],
+            start_time,
+            arguments...
         )
         start_time = start_time + duration
     end
@@ -556,31 +646,20 @@ julia> read(plan, length(plan));
 """
 function repeat!(audio_schedule::AudioSchedule, synthesizer, start_time, gap, count)
     duration = get_duration(synthesizer)
-    for _ in 1:count
+    for _ = 1:count
         push!(audio_schedule.triples, (synthesizer, start_time, duration))
         start_time = start_time + gap
     end
 end
 export repeat!
 
-# Make a dummy map so that all arguments will be StrictMapIterators
-add_to_plan!(the_sample_rate, orchestra, triggers, iterator, start_time, duration) =
-    add_to_plan!(
-        the_sample_rate,
-        orchestra,
-        triggers,
-        StrictMapIterator(identity, (iterator,)),
-        start_time,
-        duration,
-    )
-
 function add_to_plan!(
+    start_time,
+    duration,
+    iterator,
     the_sample_rate,
     orchestra,
     triggers,
-    iterator::StrictMapIterator,
-    start_time,
-    duration,
 )
     start_time_seconds = start_time / s
     label = gensym("instrument")
@@ -604,19 +683,52 @@ end
 """
     Plan(audio_schedule::AudioSchedule)
 
-Return a `SampledSource` for the `audio_schedule`.
+Return a `SampledSource` for an [`AudioSchedule`](@ref).
+
+```jldoctest audio_schedule
+julia> using AudioSchedules
+
+julia> using Unitful: s, Hz
+
+julia> audio_schedule = AudioSchedule();
+
+julia> schedule!(audio_schedule, StrictMap(sin, Cycles(440Hz)), 0s, 1s)
+
+julia> plan = Plan(audio_schedule, 44100Hz);
+```
+
+You can find the number of samples in a `Plan` with length.
+
+```jldoctest audio_schedule
+julia> the_length = length(plan)
+44100
+```
+
+You can use the plan as a source for samples.
+
+```jldoctest audio_schedule
+julia> read(plan, the_length);
+```
+
+You can't plan an empty schedule
+
+```jldoctest audio_schedule
+julia> Plan(AudioSchedule(), 44100Hz)
+ERROR: The schedule was empty
+[...]
+```
 """
 function Plan(audio_schedule::AudioSchedule, the_sample_rate)
     triggers = SortedDict{Float64,Vector{Tuple{Symbol,Bool}}}()
-    orchestra = Dict{Symbol,Tuple{StrictMapIterator,Bool}}()
+    orchestra = Dict{Symbol,Tuple{Any,Bool}}()
     for (synthesizer, start_time, duration_or_envelope) in audio_schedule.triples
         add_to_plan!(
+            start_time,
+            duration_or_envelope,
+            StrictStateful(make_iterator(synthesizer, the_sample_rate)),
             the_sample_rate,
             orchestra,
             triggers,
-            StrictStateful(make_iterator(synthesizer, the_sample_rate)),
-            start_time,
-            duration_or_envelope,
         )
     end
     time = Ref(0.0s)
@@ -653,7 +765,7 @@ julia> using Unitful: s, Hz
 
 julia> audio_schedule = AudioSchedule();
 
-julia> note = StrictMap(sin, Cycles(440Hz)), 0s, Envelope((1, 1), (1s,), (Line,));
+julia> note = (StrictMap(sin, Cycles(440Hz)), 0s, 1s);
 
 julia> schedule!(audio_schedule, note...); schedule!(audio_schedule, note...)
 
