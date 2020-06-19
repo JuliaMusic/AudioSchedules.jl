@@ -25,6 +25,38 @@ using Unitful: Hz, μPa, dB, s
 include("utilities.jl")
 
 """
+    compound_wave(overtones, dampen)
+
+Create a complex wave. Create a function of this form:
+
+```
+angle -> sum((sin(overtone * angle) / overtone^dampen for overtone in 1:overtones))
+```
+
+```jldoctest
+julia> using AudioSchedules
+
+julia> compound_wave(25, 2)(π/4)
+0.9809432244745053
+```
+"""
+function compound_wave(overtones, exponent)
+    let overtones = overtones, exponent = exponent
+        function (an_angle)
+            sum(ntuple(
+                let an_angle = an_angle, exponent = exponent
+                    @inline function (overtone)
+                        sin(overtone * an_angle) / overtone ^ exponent
+                    end
+                end,
+                overtones,
+            ))
+        end
+    end
+end
+export compound_wave
+
+"""
     get_duration(synthesizer)
 
 Get the duration of a synthesizer in seconds, for synthesizers with an inherent length.
@@ -99,9 +131,7 @@ end
 
 get_function(something::StrictMapIterator) = something.a_function
 get_iterators(something::StrictMapIterator) = something.iterators
-get_function(something) = @inline function (something)
-    something
-end
+get_function(something) = identity
 get_iterators(something) = (something,)
 
 IteratorSize(::Type{<:StrictMapIterator}) = IsInfinite
@@ -259,15 +289,17 @@ julia> plan = plan_within(audio_schedule, 44100Hz);
 julia> read(plan, length(plan));
 ```
 
-Not all hooks are solavable:
+Not all hooks are solvable:
 
 ```jldoctest hook
-julia> envelope = Envelope((1.0, 0.0), (1s,), (Hook(-1/1s, -1/1s),));
+julia> audio_schedule = AudioSchedule();
+
+julia> envelope = Envelope((1.0, 0.0), (1s,), (Hook(1/1s, 0.5/1s),));
 
 julia> schedule!(audio_schedule, StrictMap(sin, Cycles(440Hz)), 0s, envelope)
 
 julia> Plan(audio_schedule, 44100Hz)
-ERROR: Hook segments don't meet
+ERROR: Unsolvable hook
 ```
 """
 struct Hook
@@ -301,6 +333,8 @@ Line(0.0, 1.0, 0.05 s)
 Line(1.0, 1.0, 0.9 s)
 Line(1.0, 0.0, 0.05 s)
 ```
+
+Use `Envelope`s with [`schedule!`](@ref).
 
 ```jldoctest
 julia> using AudioSchedules
@@ -571,7 +605,7 @@ function add_segment!(
             start_level * exp(rate * first_period)
     end
     if !solved.f_converged
-        error("Hook segments don't meet")
+        error("Unsolvable hook")
     end
     first_period = (solved.zero[1])s
     second_period = duration - first_period
