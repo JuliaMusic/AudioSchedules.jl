@@ -1,16 +1,7 @@
 module AudioSchedules
 
-# TODO: consider using Iterators.take
 import Base:
-    eltype,
-    extrema,
-    iterate,
-    IteratorEltype,
-    IteratorSize,
-    length,
-    read!,
-    setindex!,
-    show
+    eltype, extrema, iterate, IteratorEltype, IteratorSize, length, read!, setindex!, show
 using Base: Generator, IsInfinite, HasEltype
 using Base.Iterators: cycle, Stateful, take
 using DataStructures: SortedDict
@@ -23,7 +14,7 @@ const TAU = 2 * pi
 using Unitful: Hz, μPa, dB, s
 
 const Time = typeof(1.0s)
-const Rate = typeof(1.0/s)
+const Rate = typeof(1.0 / s)
 const Frequency = typeof(1.0Hz)
 
 """
@@ -48,14 +39,11 @@ julia> compound_wave(3)(π/4)
 function compound_wave(overtones)
     let overtones = overtones
         function (an_angle)
-            sum(ntuple(
-                let an_angle = an_angle
-                    @inline function (overtone)
-                        sin(overtone * an_angle) / overtone
-                    end
-                end,
-                overtones,
-            ))
+            sum(ntuple(let an_angle = an_angle
+                @inline function (overtone)
+                    sin(overtone * an_angle) / overtone
+                end
+            end, overtones))
         end
     end
 end
@@ -109,7 +97,7 @@ julia> first(make_iterator(load("clunk.wav"), 44100Hz))
 """
 function make_iterator(buffer::SampleBuf, the_sample_rate)
     # TODO: support resampling
-    @assert buffer.samplerate == the_sample_rate / Hz
+    @assert (buffer.samplerate)Hz == the_sample_rate
     cycle(buffer.data)
 end
 
@@ -138,14 +126,11 @@ end
 export Map
 
 function map_iterator(a_function, iterators...)
-    Generator(
-        let a_function = a_function
-            function (items)
-                a_function(items...)
-            end
-        end,
-        zip(iterators...),
-    )
+    Generator(let a_function = a_function
+        function (items)
+            a_function(items...)
+        end
+    end, zip(iterators...))
 end
 
 function make_iterator(a_map::Map, the_sample_rate)
@@ -339,7 +324,8 @@ function segments(start_level, hook::Hook, duration, end_level)
         error("Unsolvable hook")
     end
     first_period = solved.zero[1]s
-    (Grow(start_level, rate), first_period), (Line(start_level * exp(rate * first_period), slope), duration - first_period)
+    (Grow(start_level, rate), first_period),
+    (Line(start_level * exp(rate * first_period), slope), duration - first_period)
 end
 
 """
@@ -374,7 +360,8 @@ julia> envelope(0, Line => 1s, 1, Line => 1s, 0)
 ```
 """
 function envelope(start_level, (shape, duration), end_level, more_segments...)
-    segments(start_level, shape, duration, end_level)..., envelope(end_level, more_segments...)...
+    segments(start_level, shape, duration, end_level)...,
+    envelope(end_level, more_segments...)...
 end
 function envelope(end_level)
     ()
@@ -382,10 +369,10 @@ end
 
 export envelope
 
-mutable struct AudioSchedule{InnerIterator} <: SampleSource
-    outer_iterator::Vector{Tuple{InnerIterator,Int}}
+mutable struct AudioSchedule <: SampleSource
+    outer_iterator::Vector{Tuple{Any,Int}}
     outer_state::Int
-    inner_iterator::InnerIterator
+    inner_iterator::Any
     has_left::Int
     the_sample_rate::Frequency
 end
@@ -473,7 +460,14 @@ function unsafe_read!(source::AudioSchedule, buf, frameoffset, framecount, from 
     end
 end
 
-function add_to_plan!(start_time, envelope::Tuple, stateful_wave, the_sample_rate, orchestra, triggers)
+function add_to_plan!(
+    start_time,
+    envelope::Tuple,
+    stateful_wave,
+    the_sample_rate,
+    orchestra,
+    triggers,
+)
     for (shape_synthesizer, duration) in envelope
         add_to_plan!(
             start_time,
@@ -483,7 +477,9 @@ function add_to_plan!(start_time, envelope::Tuple, stateful_wave, the_sample_rat
                 stateful_wave,
                 Stateful(make_iterator(shape_synthesizer, the_sample_rate)),
             ),
-            the_sample_rate, orchestra, triggers
+            the_sample_rate,
+            orchestra,
+            triggers,
         )
         start_time = start_time + duration
     end
@@ -569,8 +565,7 @@ function AudioSchedule(triples, the_sample_rate)
         )
     end
     time = 0.0s
-    # TODO: iterative widening
-    outer_iterator = Tuple{Any, Int}[]
+    outer_iterator = Tuple{Any,Int}[]
     for (trigger_time, trigger_list) in pairs(triggers)
         samples = round(Int, (trigger_time - time) * the_sample_rate)
         time = trigger_time
@@ -588,13 +583,7 @@ function AudioSchedule(triples, the_sample_rate)
         error("AudioSchedules require at least one triple")
     end
     (inner_iterator, has_left), outer_state = outer_result
-    AudioSchedule{Any}(
-        outer_iterator,
-        outer_state,
-        inner_iterator,
-        has_left,
-        the_sample_rate,
-    )
+    AudioSchedule(outer_iterator, outer_state, inner_iterator, has_left, the_sample_rate)
 end
 
 export AudioSchedule
@@ -618,11 +607,7 @@ julia> extrema!(a_schedule) .≈ (-1.0, 1.0)
 (true, true)
 ```
 """
-function schedule_within(
-    triples,
-    the_sample_rate;
-    maximum_volume = 1.0,
-)
+function schedule_within(triples, the_sample_rate; maximum_volume = 1.0)
     lower, upper = extrema!(AudioSchedule(triples, the_sample_rate))
     adjusted = AudioSchedule(triples, the_sample_rate)
     outer_iterator = adjusted.outer_iterator
