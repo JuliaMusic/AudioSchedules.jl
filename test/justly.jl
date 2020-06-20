@@ -1,4 +1,4 @@
-using AudioSchedules: AudioSchedule, compound_wave, Cycles, Envelope, Hook, Line, Plan, plan_within, @q_str, schedule!, StrictMap
+using AudioSchedules: compound_wave, Cycles, envelope, Hook, Line, schedule_within, @q_str, StrictMap
 using FileIO: save
 import LibSndFile
 using Unitful: Hz, s
@@ -8,36 +8,31 @@ cd("/home/brandon/Music")
 
 const BEAT = 0.7s
 const BEATS = 100
-const WAVE = compound_wave(Val(25), 2.5)
+const WAVE = compound_wave(Val(7))
 
 function attack_decay_release(time, ramp = 0.05s)
-    Envelope(
-        (0, 1, 0),
-        (ramp, time - ramp),
-        (Line, Hook(-2/s, -1/ramp))
-    )
+    envelope(0, Line => ramp, 1, Hook(-2/s, -1/ramp) => time - ramp, 0)
 end
 
 function justly(chords, the_sample_rate;
     key = 440Hz,
     seconds_per_beat = 1s
 )
-    audio_schedule = AudioSchedule()
+    triples = []
     clock = 0.0s
     for notes in chords
         ratio, beats = notes[1]
         key = key * ratio
         for (ratio, beats) in notes[2:end]
-            schedule!(
-                audio_schedule,
+            push!(triples, (
                 StrictMap(WAVE, Cycles(key * ratio)),
                 clock,
                 attack_decay_release(beats * seconds_per_beat),
-            )
+            ))
         end
         clock = clock + beats * seconds_per_beat
     end
-    plan_within(audio_schedule, the_sample_rate)
+    schedule_within(triples, the_sample_rate)
 end
 
 SONG = [

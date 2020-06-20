@@ -34,3 +34,7 @@ end
 @inline function add()
     0.0
 end
+
+const Time = typeof(1.0s)
+const Rate = typeof(1.0/s)
+const Frequency = typeof(1.0Hz)

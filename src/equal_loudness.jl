@@ -131,7 +131,7 @@ at 20Hz (about as low as humans can hear).
 """
 function equal_loudness(synthesizer::StrictMap{<:Any, Tuple{Cycles}})
     StrictMap(
-        let multiplier = equivalent_sound_pressure(40, (synthesizer.synthesizers[1].frequency)Hz) / MAXIMUM_PRESSURE
+        let multiplier = equivalent_sound_pressure(40, (synthesizer.synthesizers[1].frequency)) / MAXIMUM_PRESSURE
             function (amplitude)
                 amplitude * multiplier
             end
