@@ -6,8 +6,6 @@ using Waveforms: sawtoothwave
 
 cd("/home/brandon/Music")
 
-const BEAT = 0.7s
-const BEATS = 100
 const WAVE = compound_wave(Val(7))
 
 function attack_decay_release(time, ramp = 0.05s)
