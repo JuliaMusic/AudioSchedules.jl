@@ -1,8 +1,5 @@
 module AudioSchedules
 
-using Unitful
-using Unitful: @dimension, @refunit
-
 # TODO: consider using Iterators.take
 import Base:
     eltype,
@@ -14,8 +11,8 @@ import Base:
     read!,
     setindex!,
     show
-using Base: Generator, EltypeUnknown, IsInfinite, HasEltype, HasLength, RefValue, tail
-using Base.Iterators: cycle, Repeated, repeated, Stateful, take
+using Base: Generator, IsInfinite, HasEltype
+using Base.Iterators: cycle, Stateful, take
 using DataStructures: SortedDict
 using Interpolations: CubicSplineInterpolation
 using NLsolve: nlsolve
@@ -23,9 +20,11 @@ using RegularExpressions: capture, of, pattern, raw, short
 import SampledSignals: samplerate, nchannels, unsafe_read!
 using SampledSignals: SampleSource, SampleBuf
 const TAU = 2 * pi
-using Unitful: @dimension, Hz, μPa, dB, @refunit, s, hr
+using Unitful: Hz, μPa, dB, s
 
-include("utilities.jl")
+const Time = typeof(1.0s)
+const Rate = typeof(1.0/s)
+const Frequency = typeof(1.0Hz)
 
 """
     compound_wave(overtones, dampen)
@@ -66,7 +65,7 @@ export compound_wave
     get_duration(synthesizer)
 
 Get the duration of a synthesizer (with units of time, like `s`), for synthesizers with an
-inherent length. Note that there must be one extra sample at the end of the duration.
+inherent length.
 
 ```jldoctest
 julia> using AudioSchedules
@@ -78,11 +77,11 @@ julia> import LibSndFile
 julia> cd(joinpath(pkgdir(AudioSchedules), "test"))
 
 julia> get_duration(load("clunk.wav"))
-0.351859410430839 s
+0.3518820861678005 s
 ```
 """
 function get_duration(buffer::SampleBuf)
-    ((length(buffer) - 1) / buffer.samplerate)s
+    (length(buffer) / buffer.samplerate)s
 end
 export get_duration
 
@@ -90,15 +89,22 @@ export get_duration
     make_iterator(synthesizer, the_sample_rate)
 
 Return an iterator that will the play the `synthesizer` at `the_sample_rate` (with frequency
-units, like `Hz`). The iterator should yield ratios between -1 and 1.
+units, like `Hz`). The iterator should yield ratios between -1 and 1. Iterators will
+typically be infinite, with endings determined by the schedule instead.
 
 ```jldoctest
 julia> using AudioSchedules
 
 julia> using Unitful: Hz
 
-julia> first(make_iterator(Cycles(440Hz), 44100Hz))
-0.0
+julia> using FileIO: load
+
+julia> import LibSndFile
+
+julia> cd(joinpath(pkgdir(AudioSchedules), "test"))
+
+julia> first(make_iterator(load("clunk.wav"), 44100Hz))
+0.00168Q0f15
 ```
 """
 function make_iterator(buffer::SampleBuf, the_sample_rate)
@@ -109,44 +115,19 @@ end
 
 export make_iterator
 
-mutable struct StrictStateful{Iterator,Item,State}
-    iterator::Iterator
-    item_state::Tuple{Item,State}
-end
-IteratorSize(::Type{<:StrictStateful}) = IsInfinite()
-IteratorEltype(::Type{StrictStateful{<:Any,Item,<:Any}}) where {Item} = Item
-StrictStateful(iterator) = StrictStateful(iterator, iterate(iterator))
-function iterate(stateful::StrictStateful, state = nothing)
-    last_item, state = stateful.item_state
-    stateful.item_state = iterate(stateful.iterator, state)
-    last_item, nothing
-end
-
-@inline function detach(iterator::StrictStateful)
-    iterator.iterator, iterator.item_state...
-end
-@inline function reattach!(iterator::StrictStateful, item, state)
-    iterator.item_state = (item, state)
-end
-
-struct MapIterator{AFunction,Iterators}
-    a_function::AFunction
-    iterators::Iterators
-end
-
-IteratorSize(::Type{<:MapIterator}) = IsInfinite
-IteratorEltype(::Type{<:MapIterator}) = EltypeUnknown
-
-@inline function iterate(something::MapIterator, state...)
-    items, states = zip_unrolled(Val(2), map(iterate, something.iterators, state...)...)
-    something.a_function(items...), states
-end
-
 """
     Map(a_function, synthesizers...)
 
-Map `a_function` over `synthesizers`, assuming that none of the `synthesizers` will end
-before they are scheduled to. Supports [`make_iterator`](@ref)
+Map `a_function` over `synthesizers`. Supports [`make_iterator`](@ref).
+
+```jldoctest
+julia> using AudioSchedules
+
+julia> using Unitful: Hz
+
+julia> first(make_iterator(Map(sin, Cycles(440Hz)), 44100Hz))
+0.0
+```
 """
 struct Map{AFunction,Synthesizers}
     a_function::AFunction
@@ -156,11 +137,21 @@ struct Map{AFunction,Synthesizers}
 end
 export Map
 
-function make_iterator(a_map::Map, the_sample_rate)
-    MapIterator(
-        a_map.a_function,
-        map(synthesizer -> make_iterator(synthesizer, the_sample_rate), a_map.synthesizers),
+function map_iterator(a_function, iterators...)
+    Generator(
+        let a_function = a_function
+            function (items)
+                a_function(items...)
+            end
+        end,
+        zip(iterators...),
     )
+end
+
+function make_iterator(a_map::Map, the_sample_rate)
+    map_iterator(a_map.a_function, map(a_map.synthesizers) do synthesizer
+        make_iterator(synthesizer, the_sample_rate)
+    end...)
 end
 
 struct LineIterator
@@ -250,9 +241,8 @@ end
 """
     Grow(start, rate)
 
-Exponentially grow or decay from `start` (with units of sound volume like ``), at a
-continuous `rate` (with units of proportion per time like `1/s`). Supports
-[`make_iterator`](@ref).
+Exponentially grow or decay from `start` (unitless), at a continuous `rate` (with units per
+time like `1/s`). Supports [`make_iterator`](@ref).
 
 ```jldoctest
 julia> using AudioSchedules
@@ -315,7 +305,8 @@ export Hook
 """
     segments(an_envelope, shape, duration, start_level, end_level)
 
-Called by [`envelope`](@ref). Return a tuple of pairs in the form ``(segment, durations)``
+Called by [`envelope`](@ref). Return a tuple of pairs in the form ``(segment, duration)`,
+where duration has units of time (like `s`).
 
 ```jldoctest
 julia> using AudioSchedules
@@ -357,7 +348,7 @@ end
 For each envelope segment, call
 
 ```
-segments(an_envelope, start_level, shape, duration, end_level)
+segments(start_level, shape, duration, end_level)
 ```
 
 `duration` should have units of time (like `s`). For example,
@@ -369,8 +360,8 @@ envelope(0, Line => 1s, 1, Line => 1s, 0)
 will add two segments:
 
 ```
-segments(an_envelope, 0, Line => 1s, 1)
-segments(an_envelope, 1, Line => 1s, 0)
+segments(0, Line, 1s, 1)
+segments(1, Line, 1s, 0)
 ```
 
 ```jldoctest
@@ -399,13 +390,6 @@ mutable struct AudioSchedule{InnerIterator} <: SampleSource
     the_sample_rate::Frequency
 end
 
-function inner_AudioSchedule(
-    outer_iterator::Vector{Tuple{InnerIterator,Int}},
-    the_sample_rate,
-) where {InnerIterator}
-
-end
-
 eltype(source::AudioSchedule) = Float64
 
 nchannels(source::AudioSchedule) = 1
@@ -418,13 +402,8 @@ end
 
 # TODO: optimize
 @noinline function seek_extrema!(iterator, number, lower, upper)
-    item, state = iterate(iterator)
-    for _ = 1:number
-        lower = min(lower, item)
-        upper = max(upper, item)
-        item, state = iterate(iterator)
-    end
-    lower, upper
+    new_lower, new_upper = extrema(take(iterator, number))
+    min(lower, new_lower), max(upper, new_upper)
 end
 
 """
@@ -499,12 +478,10 @@ function add_to_plan!(start_time, envelope::Tuple, stateful_wave, the_sample_rat
         add_to_plan!(
             start_time,
             duration,
-            MapIterator(
+            map_iterator(
                 *,
-                (
-                    stateful_wave,
-                    StrictStateful(make_iterator(shape_synthesizer, the_sample_rate)),
-                ),
+                stateful_wave,
+                Stateful(make_iterator(shape_synthesizer, the_sample_rate)),
             ),
             the_sample_rate, orchestra, triggers
         )
@@ -585,7 +562,7 @@ function AudioSchedule(triples, the_sample_rate)
         add_to_plan!(
             start_time,
             duration_or_envelope,
-            StrictStateful(make_iterator(synthesizer, the_sample_rate)),
+            Stateful(make_iterator(synthesizer, the_sample_rate)),
             the_sample_rate,
             orchestra,
             triggers,
@@ -597,15 +574,14 @@ function AudioSchedule(triples, the_sample_rate)
     for (trigger_time, trigger_list) in pairs(triggers)
         samples = round(Int, (trigger_time - time) * the_sample_rate)
         time = trigger_time
-        together = MapIterator(
-            add,
-            ((iterator for (iterator, is_on) in values(orchestra) if is_on)...,),
-        )
+        iterators = ((iterator for (iterator, is_on) in values(orchestra) if is_on)...,)
         for (label, is_on) in trigger_list
             iterator, _ = orchestra[label]
             orchestra[label] = iterator, is_on
         end
-        push!(outer_iterator, (together, samples))
+        if samples > 0 && length(iterators) > 0
+            push!(outer_iterator, (map_iterator(+, iterators...), samples))
+        end
     end
     outer_result = iterate(outer_iterator)
     if outer_result === nothing
@@ -653,11 +629,11 @@ function schedule_within(
     scale = 1.0 / max(abs(lower), abs(upper))
     map!(
         function ((iterator, number),)
-            MapIterator(let scale = scale
+            Generator(let scale = scale
                 @inline function (amplitude)
                     amplitude * scale
                 end
-            end, (iterator,)), number
+            end, iterator), number
         end,
         outer_iterator,
         outer_iterator,
