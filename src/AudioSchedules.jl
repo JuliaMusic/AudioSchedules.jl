@@ -331,7 +331,7 @@ end
 """
     envelope(start_level, shape => duration, end_level, more_segments...)
 
-For each envelope segment, call
+For all envelope [`segments`](@ref), call
 
 ```
 segments(start_level, shape, duration, end_level)
