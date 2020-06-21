@@ -11,6 +11,9 @@ RegularExpressions = "27faeba3-bc54-5829-b163-df8cb949fe88"
 SampledSignals = "bd7594eb-a658-542f-9e75-4c4d8908c167"
 Unitful = "1986cc42-f94f-5a68-af5c-568840ba703d"
 
+[compat]
+NLsolve = "4.4"
+
 [extras]
 Documenter = "e30172f5-a6a5-5a46-863b-614d45cd2de4"
 FileIO = "5789e2e9-d7fb-5bc7-8068-2c6fae9b9549"
