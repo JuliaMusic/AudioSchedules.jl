@@ -7,7 +7,7 @@ using Base.Iterators: cycle, Stateful, take
 using DataStructures: SortedDict
 using Interpolations: CubicSplineInterpolation
 using NLsolve: nlsolve
-using RegularExpressions: capture, of, pattern, raw, short
+using RegularExpressions: capture, CONSTANTS, of, pattern, raw, short
 import SampledSignals: samplerate, nchannels, unsafe_read!
 using SampledSignals: SampleSource, SampleBuf
 const TAU = 2 * pi
@@ -629,9 +629,11 @@ export schedule_within
 
 const DIGITS = of(:maybe, raw("-")), of(:some, short(:digit))
 const QUOTIENT = pattern(
+    CONSTANTS.start,
     of(:maybe, capture(DIGITS..., name = "numerator")),
     of(:maybe, raw("/"), capture(DIGITS..., name = "denominator")),
     of(:maybe, "o", capture(DIGITS..., name = "octave")),
+    CONSTANTS.stop
 )
 
 get_parse(something, default) = parse(Int, something)
@@ -660,6 +662,10 @@ julia> q"2/3o-1"
 
 julia> q"o2"
 4//1
+
+julia> q"1 + 1"
+ERROR: LoadError: Can't parse interval 1 + 1
+[...]
 ```
 """
 macro q_str(interval_string::AbstractString)
