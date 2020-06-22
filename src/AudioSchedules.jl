@@ -92,8 +92,7 @@ Create a compound wave. Create a function of this form:
 radians -> sum((sin(overtone * radians) / overtone for overtone in 1:overtones))
 ```
 
-To increase richness but also buziness, increase `overtones`. To decrease buziness but also
-buziness, decrease `dampen`.
+To increase richness but also buziness, increase `overtones`.
 
 ```jldoctest
 julia> using AudioSchedules
@@ -361,7 +360,7 @@ export Hook
 """
     segments(an_envelope, shape, duration, start_level, end_level)
 
-Called by [`envelope`](@ref). Return a tuple of pairs in the form ``(segment, duration)`,
+Called by [`envelope`](@ref). Return a tuple of pairs in the form `(segment, duration)`,
 where duration has units of time (like `s`).
 
 ```jldoctest
@@ -491,27 +490,10 @@ end
         lower = min(lower, item)
         upper = max(upper, item)
     end
-    attach_state!(stateful, state)
     lower, upper
 end
 
-"""
-    extrema!(a_schedule::AudioSchedule)
-
-Find the extrema of `a_schedule`. This will consume the schedule.
-
-```jldoctest
-julia> using AudioSchedules
-
-julia> using Unitful: s, Hz
-
-julia> triple = (Map(sin, Cycles(440Hz)), 0s, 1s);
-
-julia> extrema!(AudioSchedule([triple, triple], 44100Hz)) .≈ (-1.9999995, 1.9999995)
-(true, true)
-```
-"""
-function extrema!(a_schedule::AudioSchedule)
+function extrema(a_schedule::AudioSchedule)
     lower = Inf
     upper = -Inf
     for (iterator, number) in a_schedule.outer_iterator
@@ -519,7 +501,7 @@ function extrema!(a_schedule::AudioSchedule)
     end
     lower, upper
 end
-export extrema!
+export extrema
 
 @noinline function switch_iterator!(source, buf, frameoffset, framecount, ::Nothing, until)
     until
@@ -707,12 +689,12 @@ julia> triple = (Map(sin, Cycles(440Hz)), 0s, 1s);
 
 julia> a_schedule = schedule_within([triple, triple], 44100Hz);
 
-julia> extrema!(a_schedule) .≈ (-1.0, 1.0)
+julia> extrema(a_schedule) .≈ (-1.0, 1.0)
 (true, true)
 ```
 """
 function schedule_within(triples, the_sample_rate; maximum_volume = 1.0)
-    lower, upper = extrema!(AudioSchedule(triples, the_sample_rate))
+    lower, upper = extrema(AudioSchedule(triples, the_sample_rate))
     adjusted = AudioSchedule(triples, the_sample_rate)
     outer_iterator = adjusted.outer_iterator
     AudioSchedule(
@@ -789,6 +771,89 @@ macro q_str(interval_string::AbstractString)
     )
 end
 export @q_str
+
+"""
+    pluck(time; decay = -2.5/s, ramp = 0.005s, peak = 1)
+
+Make an [`envelope`](@ref) with an exponential decay, and steep ramps on either side.
+
+```jldoctest
+julia> using AudioSchedules
+
+julia> using Unitful: s
+
+julia> pluck(1s)
+((Line(0.0, 200.0 s^-1), 0.005 s), (Grow(1.0, -2.5 s^-1), 0.9945839800394016 s), (Line(0.08320399211967063, -200.0 s^-1), 0.0004160199605983683 s))
+```
+"""
+function pluck(time; decay = -2.5/s, ramp = 0.005s, peak = 1)
+    envelope(0, Line => ramp, peak, Hook(decay, -1/ramp) => time - ramp, 0)
+end
+export pluck
+
+"""
+    function justly(chords, the_sample_rate;
+        key = 440Hz,
+        seconds_per_beat = 1s,
+        wave = compound_wave(Val(7)),
+        make_envelope = pluck,
+        maximum_volume = 1.0
+    )
+
+A rudimentary way to synthesize music. Chords should be a list of pairs in the form:
+
+```
+(interval, beats)
+```
+
+The first interval in the chord will change the key, and tells how many beats before the
+next chord. The rest of the intervals in the chord will play notes, with the interval
+showing their relationship to the key. `wave` should be a function which takes radians and
+yields amplitudes between -1 and 1. `make_envelope` should be a function which takes a
+duration in units of time (like `s`) and returns an [`envelope`](@ref). `maximum_volume`
+will be passed to [`schedule_within`](@ref). For example, to create a simple I-IV-I figure,
+
+```jldoctest
+julia> using AudioSchedules
+
+julia> using Unitful: Hz, s
+
+julia> SONG = (
+            (q"1" => 1, q"1" => 1, q"5/4" => 1, q"3/2" => 1),
+            (q"2/3" => 1, q"3/2" => 1, q"o1" => 1, q"5/4o1" => 1),
+            (q"3/2" => 1, q"1" => 1, q"5/4" => 1, q"3/2" => 1)
+        );
+
+julia> a_schedule = justly(SONG, 44100Hz);
+
+julia> first(read(a_schedule, length(a_schedule)))
+0.0
+```
+"""
+function justly(chords, the_sample_rate;
+    key = 440Hz,
+    seconds_per_beat = 1s,
+    wave = compound_wave(Val(7)),
+    make_envelope = pluck,
+    maximum_volume = 1.0
+)
+    triples = []
+    clock = 0.0s
+    for notes in chords
+        ratio, beats = notes[1]
+        key = key * ratio
+        for (ratio, beats) in notes[2:end]
+            push!(triples, (
+                Map(wave, Cycles(key * ratio)),
+                clock,
+                make_envelope(beats * seconds_per_beat),
+            ))
+        end
+        clock = clock + beats * seconds_per_beat
+    end
+    schedule_within(triples, the_sample_rate; maximum_volume = maximum_volume)
+end
+export justly
 
 include("equal_loudness.jl")
 

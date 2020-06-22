@@ -1,37 +1,9 @@
-using AudioSchedules: compound_wave, Cycles, envelope, Hook, Line, schedule_within, @q_str, Map
+using AudioSchedules: @q_str, justly
 using FileIO: save
 import LibSndFile
 using Unitful: Hz, s
-using Waveforms: sawtoothwave
 
 cd("/home/brandon/Music")
-
-function pluck(time; decay = -2.5/s, ramp = 0.005s, peak = 1)
-    envelope(0, Line => ramp, peak, Hook(-2.5/s, -1/ramp) => time - ramp, 0)
-end
-
-function justly(chords, the_sample_rate;
-    key = 440Hz,
-    seconds_per_beat = 1s,
-    wave = compound_wave(Val(7)),
-    make_envelope = pluck
-)
-    triples = []
-    clock = 0.0s
-    for notes in chords
-        ratio, beats = notes[1]
-        key = key * ratio
-        for (ratio, beats) in notes[2:end]
-            push!(triples, (
-                Map(wave, Cycles(key * ratio)),
-                clock,
-                make_envelope(beats * seconds_per_beat),
-            ))
-        end
-        clock = clock + beats * seconds_per_beat
-    end
-    schedule_within(triples, the_sample_rate)
-end
 
 MAJOR_6 = (
     (q"1" => 1, q"1" => 6),
