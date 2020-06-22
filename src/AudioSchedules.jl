@@ -1,9 +1,18 @@
 module AudioSchedules
 
 import Base:
-    eltype, extrema, iterate, IteratorEltype, IteratorSize, length, read!, setindex!, show
-using Base: Generator, IsInfinite, HasEltype
-using Base.Iterators: cycle, Stateful, take
+    eltype,
+    extrema,
+    iterate,
+    IteratorEltype,
+    IteratorSize,
+    length,
+    push_widen,
+    read!,
+    setindex!,
+    show
+using Base: Generator, IsInfinite, HasEltype, tail
+using Base.Iterators: cycle, take, Zip
 using DataStructures: SortedDict
 using Interpolations: CubicSplineInterpolation
 using NLsolve: nlsolve
@@ -16,6 +25,63 @@ using Unitful: Hz, μPa, dB, s
 const Time = typeof(1.0s)
 const Rate = typeof(1.0 / s)
 const Frequency = typeof(1.0Hz)
+
+@inline function zip_unrolled(expected, them::Vararg{Any})
+    map(first, them), zip_unrolled(expected, map(tail, them)...)...
+end
+@inline function zip_unrolled(expected, them::Vararg{Tuple{}})
+    ()
+end
+@inline function zip_unrolled(expected, them::Vararg{Any,0})
+    ntuple((@inline function (thing)
+        ()
+    end), expected)
+end
+
+struct Laggy{Iterator}
+    iterator::Iterator
+end
+IteratorSize(::Type{<:Laggy}) = IsInfinite()
+IteratorEltype(::Type{<:Laggy{Iterator}}) where {Iterator} = IteratorEltype(Iterator)
+eltype(laggy::Laggy) = eltype(laggy.iterator)
+@inline function iterate(laggy::Laggy, (last_item, state) = iterate(laggy.iterator))
+    last_item, iterate(laggy.iterator, state)
+end
+
+mutable struct InfiniteStateful{Iterator,Item,State}
+    iterator::Iterator
+    item::Item
+    state::State
+end
+IteratorSize(::Type{<:InfiniteStateful}) = IsInfinite()
+IteratorEltype(::Type{<:InfiniteStateful}) = HasEltype()
+eltype(::Type{<:InfiniteStateful{<:Any,Item,<:Any}}) where {Item} = Item
+function InfiniteStateful(iterator)
+    InfiniteStateful(iterator, iterate(iterator)...)
+end
+@inline function iterate(stateful::InfiniteStateful, state = nothing)
+    last_item = stateful.item
+    stateful.item, stateful.state = iterate(stateful.iterator, stateful.state)
+    last_item, nothing
+end
+
+@inline detach_state(stateful::InfiniteStateful) =
+    Laggy(stateful.iterator), (stateful.item, stateful.state)
+@inline function attach_state!(stateful::InfiniteStateful, (item, state))
+    stateful.item = item
+    stateful.state = state
+    nothing
+end
+@inline function detach_state(a_map::Generator{<:Zip})
+    statefuls = a_map.iter.is
+    iterators, item_states = zip_unrolled(Val(2), map(detach_state, statefuls)...)
+    Generator(a_map.f, zip(iterators...)), item_states
+end
+@inline function attach_state!(a_map::Generator{<:Zip}, item_states)
+    map(attach_state!, a_map.iter.is, item_states)
+    nothing
+end
+
 
 """
     compound_wave(overtones, dampen)
@@ -38,7 +104,7 @@ julia> compound_wave(3)(π/4)
 """
 function compound_wave(overtones)
     let overtones = overtones
-        function (an_angle)
+        @inline function (an_angle)
             sum(ntuple(let an_angle = an_angle
                 @inline function (overtone)
                     sin(overtone * an_angle) / overtone
@@ -77,8 +143,8 @@ export get_duration
     make_iterator(synthesizer, the_sample_rate)
 
 Return an iterator that will the play the `synthesizer` at `the_sample_rate` (with frequency
-units, like `Hz`). The iterator should yield ratios between -1 and 1. Iterators will
-typically be infinite, with endings determined by the schedule instead.
+units, like `Hz`). The iterator should yield ratios between -1 and 1. Assumes that iterators
+will never end while they are scheduled.
 
 ```jldoctest
 julia> using AudioSchedules
@@ -127,16 +193,21 @@ export Map
 
 function map_iterator(a_function, iterators...)
     Generator(let a_function = a_function
-        function (items)
+        @inline function (items)
             a_function(items...)
         end
     end, zip(iterators...))
 end
 
 function make_iterator(a_map::Map, the_sample_rate)
-    map_iterator(a_map.a_function, map(a_map.synthesizers) do synthesizer
-        make_iterator(synthesizer, the_sample_rate)
-    end...)
+    map_iterator(
+        a_map.a_function,
+        map(let the_sample_rate = the_sample_rate
+            function (synthesizer)
+                make_iterator(synthesizer, the_sample_rate)
+            end
+        end, a_map.synthesizers)...,
+    )
 end
 
 struct LineIterator
@@ -314,12 +385,24 @@ end
 function segments(start_level, hook::Hook, duration, end_level)
     rate = hook.rate
     slope = hook.slope
-    solved = nlsolve([duration / 2 / s], autodiff = :forward) do residuals, arguments
-        first_period = arguments[1]s
-        residuals[1] =
-            end_level + slope * (first_period - duration) -
-            start_level * exp(rate * first_period)
-    end
+    solved = nlsolve(
+        let start_level = start_level,
+            end_level = end_level,
+            rate = rate,
+            slope = slope,
+            duration = duration
+
+            function (residuals, arguments)
+                first_period = arguments[1]s
+                residuals[1] =
+                    end_level + slope * (first_period - duration) -
+                    start_level * exp(rate * first_period)
+                nothing
+            end
+        end,
+        [duration / 2 / s],
+        autodiff = :forward,
+    )
     if !solved.f_converged
         error("Unsolvable hook")
     end
@@ -369,13 +452,27 @@ end
 
 export envelope
 
-mutable struct AudioSchedule <: SampleSource
-    outer_iterator::Vector{Tuple{Any,Int}}
-    outer_state::Int
+mutable struct AudioSchedule{OuterIterator,OuterState} <: SampleSource
+    outer_iterator::OuterIterator
+    outer_state::OuterState
     inner_iterator::Any
     has_left::Int
     the_sample_rate::Frequency
 end
+
+AudioSchedule(
+    outer_iterator::OuterIterator,
+    outer_state::OuterState,
+    inner_iterator,
+    has_left,
+    the_sample_rate,
+) where {OuterIterator,OuterState} = AudioSchedule{OuterIterator,OuterState}(
+    outer_iterator,
+    outer_state,
+    inner_iterator,
+    has_left,
+    the_sample_rate,
+)
 
 eltype(source::AudioSchedule) = Float64
 
@@ -387,10 +484,15 @@ function length(source::AudioSchedule)
     sum((samples for (_, samples) in source.outer_iterator))
 end
 
-# TODO: optimize
-@noinline function seek_extrema!(iterator, number, lower, upper)
-    new_lower, new_upper = extrema(take(iterator, number))
-    min(lower, new_lower), max(upper, new_upper)
+@noinline function seek_extrema!(stateful, number, lower, upper)
+    iterator, state = detach_state(stateful)
+    for index = 1:number
+        item, state = iterate(iterator, state)
+        lower = min(lower, item)
+        upper = max(upper, item)
+    end
+    attach_state!(stateful, state)
+    lower, upper
 end
 
 """
@@ -434,13 +536,13 @@ end
     unsafe_read!(source, buf, frameoffset, framecount, until + 1)
 end
 
-# TODO: optimize
-@noinline function inner_fill!(iterator, buf, a_range)
-    item, state = iterate(iterator)
+@noinline function inner_fill!(stateful, buf, a_range)
+    iterator, state = detach_state(stateful)
     for index in a_range
+        item, state = iterate(iterator, state)
         buf[index] = item
-        item, state = iterate(iterator)
     end
+    attach_state!(stateful, state)
     nothing
 end
 
@@ -475,7 +577,7 @@ function add_to_plan!(
             map_iterator(
                 *,
                 stateful_wave,
-                Stateful(make_iterator(shape_synthesizer, the_sample_rate)),
+                InfiniteStateful(make_iterator(shape_synthesizer, the_sample_rate)),
             ),
             the_sample_rate,
             orchestra,
@@ -558,26 +660,28 @@ function AudioSchedule(triples, the_sample_rate)
         add_to_plan!(
             start_time,
             duration_or_envelope,
-            Stateful(make_iterator(synthesizer, the_sample_rate)),
+            InfiniteStateful(make_iterator(synthesizer, the_sample_rate)),
             the_sample_rate,
             orchestra,
             triggers,
         )
     end
-    time = 0.0s
-    outer_iterator = Tuple{Any,Int}[]
-    for (trigger_time, trigger_list) in pairs(triggers)
-        samples = round(Int, (trigger_time - time) * the_sample_rate)
-        time = trigger_time
-        iterators = ((iterator for (iterator, is_on) in values(orchestra) if is_on)...,)
-        for (label, is_on) in trigger_list
-            iterator, _ = orchestra[label]
-            orchestra[label] = iterator, is_on
-        end
-        if samples > 0 && length(iterators) > 0
-            push!(outer_iterator, (map_iterator(+, iterators...), samples))
-        end
-    end
+    outer_iterator = collect(Generator(
+        let time = 0.0s, orchestra = orchestra, (+) = (+)
+            function ((trigger_time, trigger_list),)
+                samples = round(Int, (trigger_time - time) * the_sample_rate)
+                time = trigger_time
+                iterators =
+                    ((iterator for (iterator, is_on) in values(orchestra) if is_on)...,)
+                for (label, is_on) in trigger_list
+                    iterator, _ = orchestra[label]
+                    orchestra[label] = iterator, is_on
+                end
+                map_iterator(+, iterators...), samples
+            end
+        end,
+        pairs(triggers),
+    ),)
     outer_result = iterate(outer_iterator)
     if outer_result === nothing
         error("AudioSchedules require at least one triple")
@@ -592,7 +696,7 @@ export AudioSchedule
     schedule_within(triples, the_sample_rate; maximum_volume = 1.0)
 
 Make an [`AudioSchedule`](@ref) with `triples` and `the_sample_rate`, then adjust the volume
-to `maximum_volume`.
+to `maximum_volume`. Will iterate through triples twice.
 
 ```jldoctest
 julia> using AudioSchedules
@@ -611,19 +715,25 @@ function schedule_within(triples, the_sample_rate; maximum_volume = 1.0)
     lower, upper = extrema!(AudioSchedule(triples, the_sample_rate))
     adjusted = AudioSchedule(triples, the_sample_rate)
     outer_iterator = adjusted.outer_iterator
-    scale = 1.0 / max(abs(lower), abs(upper))
-    map!(
-        function ((iterator, number),)
-            Generator(let scale = scale
-                @inline function (amplitude)
-                    amplitude * scale
+    AudioSchedule(
+        Generator(
+            let scale = 1.0 / max(abs(lower), abs(upper))
+                function ((iterator, start_time, duration),)
+                    (
+                        Map(let scale = scale
+                            @inline function (amplitude)
+                                amplitude * scale
+                            end
+                        end, iterator),
+                        start_time,
+                        duration,
+                    )
                 end
-            end, iterator), number
-        end,
-        outer_iterator,
-        outer_iterator,
+            end,
+            triples,
+        ),
+        the_sample_rate,
     )
-    adjusted
 end
 export schedule_within
 
@@ -633,7 +743,7 @@ const QUOTIENT = pattern(
     of(:maybe, capture(DIGITS..., name = "numerator")),
     of(:maybe, raw("/"), capture(DIGITS..., name = "denominator")),
     of(:maybe, "o", capture(DIGITS..., name = "octave")),
-    CONSTANTS.stop
+    CONSTANTS.stop,
 )
 
 get_parse(something, default) = parse(Int, something)
