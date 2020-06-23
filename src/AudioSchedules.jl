@@ -299,7 +299,7 @@ end
     Grow(start, rate)
 
 Exponentially grow or decay from `start` (unitless), at a continuous `rate` (with units per
-time like `1/s`). Supports [`make_iterator`](@ref).
+time like `1/s`). Supports [`make_iterator`](@ref) and [`segments`](@ref)..
 
 ```jldoctest
 julia> using AudioSchedules
@@ -680,8 +680,8 @@ export AudioSchedule
 """
     schedule_within(triples, the_sample_rate; maximum_volume = 1.0)
 
-Make an [`AudioSchedule`](@ref) with `triples` and `the_sample_rate`, then adjust the volume
-to `maximum_volume`. Will iterate through triples twice.
+Make an [`AudioSchedule`](@ref) with `triples` and `the_sample_rate` (with frequency units
+like `Hz`), then adjust the volume to `maximum_volume`. Will iterate through triples twice.
 
 ```jldoctest
 julia> using AudioSchedules
@@ -817,7 +817,7 @@ in time. The rest of the intervals in the chord will play notes, with the interv
 their relationship to the key. `wave` should be a function which takes radians and yields
 amplitudes between -1 and 1, and defaults to a [`compound_wave`](@ref). `make_envelope`
 should be a function which takes a duration in units of time (like `s`) and returns an
-[`envelope`](@ref). It defaults to a [`pluck`](@ref). Maximum_volume` will be passed to
+[`envelope`](@ref). It defaults to a [`pluck`](@ref). `maximum_volume` will be passed to
 [`schedule_within`](@ref). For example, to create a simple I-IV-I figure,
 
 ```jldoctest
