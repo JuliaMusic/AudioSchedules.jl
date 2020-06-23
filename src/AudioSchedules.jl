@@ -84,7 +84,7 @@ end
 
 
 """
-    compound_wave(overtones, dampen)
+    compound_wave(overtones)
 
 Create a compound wave. Create a function of this form:
 
@@ -100,6 +100,8 @@ julia> using AudioSchedules
 julia> compound_wave(3)(π/4)
 1.4428090415820634
 ```
+
+You can pass `overtones` as a integer, or as a `Val` to maximize performance.
 """
 function compound_wave(overtones)
     let overtones = overtones
@@ -803,18 +805,20 @@ export pluck
         maximum_volume = 1.0
     )
 
-A rudimentary way to synthesize music. Chords should be a list of pairs in the form:
+A rudimentary way to synthesize music. Chords should be a nested list of pairs in the form:
 
 ```
 (interval, beats)
 ```
 
 The first interval in the chord will change the key, and tells how many beats before the
-next chord. The rest of the intervals in the chord will play notes, with the interval
-showing their relationship to the key. `wave` should be a function which takes radians and
-yields amplitudes between -1 and 1. `make_envelope` should be a function which takes a
-duration in units of time (like `s`) and returns an [`envelope`](@ref). `maximum_volume`
-will be passed to [`schedule_within`](@ref). For example, to create a simple I-IV-I figure,
+next chord. You can set beats to 0 to overlap, or to a negative number to "time-travel" back
+in time. The rest of the intervals in the chord will play notes, with the interval showing
+their relationship to the key. `wave` should be a function which takes radians and yields
+amplitudes between -1 and 1, and defaults to a [`compound_wave`](@ref). `make_envelope`
+should be a function which takes a duration in units of time (like `s`) and returns an
+[`envelope`](@ref). It defaults to a [`pluck`](@ref). Maximum_volume` will be passed to
+[`schedule_within`](@ref). For example, to create a simple I-IV-I figure,
 
 ```jldoctest
 julia> using AudioSchedules
