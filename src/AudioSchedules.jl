@@ -228,7 +228,7 @@ end
     Line(start, slope)
 
 A line from `start` (unitless) with `slope` (with units per time like `1/s`). Supports
-[`make_iterator`](@ref).
+[`make_iterator`](@ref) and [`segments`](@ref).
 
 ```jldoctest
 julia> using AudioSchedules
@@ -271,8 +271,8 @@ end
 """
     Cycles(frequency)
 
-Cycles from 0 to 2π to repeat at a `frequency` (with frequency
-units, like `Hz`). Supports [`make_iterator`](@ref).
+Cycles from 0 to 2π to repeat at a `frequency` (with frequency units, like `Hz`). Supports
+[`make_iterator`](@ref) and [`segments`](@ref).
 
 ```jldoctest
 julia> using AudioSchedules
@@ -339,7 +339,7 @@ end
 
 Make a hook shape, with an exponential curve growing at a continuous `rate` (with units per
 time like `1/s`), followed by a line with `slope` (with units per time like  `1/s`). Use
-with [`envelope`](@ref).
+with [`envelope`](@ref). Supports [`segments`](@ref).
 
 ```jldoctest hook
 julia> using AudioSchedules
@@ -358,10 +358,11 @@ end
 export Hook
 
 """
-    segments(an_envelope, shape, duration, start_level, end_level)
+    segments(start_level, shape, duration, end_level)
 
 Called by [`envelope`](@ref). Return a tuple of pairs in the form `(segment, duration)`,
-where duration has units of time (like `s`).
+where duration has units of time (like `s`), with a segment of shape `shape`. Shapes include
+[`Line`](@ref), [`Grow`](@ref), and [`Hook`](@ref).
 
 ```jldoctest
 julia> using AudioSchedules
@@ -773,9 +774,10 @@ end
 export @q_str
 
 """
-    pluck(time; decay = -2.5/s, ramp = 0.005s, peak = 1)
+    pluck(time; decay = -2.5/s, slope = 1/0.005s, peak = 1)
 
-Make an [`envelope`](@ref) with an exponential decay, and steep ramps on either side.
+Make an [`envelope`](@ref) with an exponential `decay` (with units per time, like `1/s`)
+from the `peak`, and ramps with `slope` (in units per time, like `1/s`) on each side.
 
 ```jldoctest
 julia> using AudioSchedules
@@ -786,8 +788,9 @@ julia> pluck(1s)
 ((Line(0.0, 200.0 s^-1), 0.005 s), (Grow(1.0, -2.5 s^-1), 0.9945839800394016 s), (Line(0.08320399211967063, -200.0 s^-1), 0.0004160199605983683 s))
 ```
 """
-function pluck(time; decay = -2.5/s, ramp = 0.005s, peak = 1)
-    envelope(0, Line => ramp, peak, Hook(decay, -1/ramp) => time - ramp, 0)
+function pluck(time; decay = -2.5/s, slope = 1/0.005s, peak = 1)
+    ramp = peak/slope
+    envelope(0, Line => ramp, peak, Hook(decay, -slope) => time - ramp, 0)
 end
 export pluck
 
