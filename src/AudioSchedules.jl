@@ -86,11 +86,8 @@ end
 """
     compound_wave(overtones)
 
-Create a compound wave. Create a function of this form:
-
-```
-radians -> sum((sin(overtone * radians) / overtone for overtone in 1:overtones))
-```
+Build a saw-tooth wave from its partials, starting with the fundamental (1), up to
+`overtones`. You can pass `overtones` as a integer, or as a `Val` to maximize performance.
 
 To increase richness but also buziness, increase `overtones`.
 
@@ -100,8 +97,6 @@ julia> using AudioSchedules
 julia> compound_wave(3)(π/4)
 1.4428090415820634
 ```
-
-You can pass `overtones` as a integer, or as a `Val` to maximize performance.
 """
 function compound_wave(overtones)
     let overtones = overtones
@@ -779,7 +774,7 @@ export @q_str
     pluck(time; decay = -2.5/s, slope = 1/0.005s, peak = 1)
 
 Make an [`envelope`](@ref) with an exponential `decay` (with units per time, like `1/s`)
-from the `peak`, and ramps with `slope` (in units per time, like `1/s`) on each side.
+from the `peak`, and ramps with ±`slope` (in units per time, like `1/s`) on each side.
 
 ```jldoctest
 julia> using AudioSchedules
