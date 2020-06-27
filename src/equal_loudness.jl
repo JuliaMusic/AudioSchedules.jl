@@ -102,11 +102,13 @@ function equivalent_sound_pressure(phon, frequency)
     exponent = EXPONENT_INTERPOLATOR(log_10_frequency)
     linear = LINEAR_INTERPOLATOR(log_10_frequency)
     threshold = THRESHOLD_INTERPOLATOR(log_10_frequency)
-    A_f = 0.00447 * (10^(0.025 * phon) - 1.15) + (0.4 * (10^((threshold + linear) / 10 - 9)))^exponent
+    A_f = 4.47e-3 * (10^(0.025 * phon) - 1.15) + (0.4 * (10^((threshold + linear) / 10 - 9)))^exponent
     ((10 / exponent * log10(A_f)) - linear + 94)dB * 20μPa
 end
 
-const MAXIMUM_PRESSURE = equivalent_sound_pressure(40, 20Hz)
+const MEDIUM_LOUDNESS = 40
+
+const MAXIMUM_PRESSURE = equivalent_sound_pressure(MEDIUM_LOUDNESS, 20Hz)
 
 """
     equal_loudness(synthesizer::Map{<:Any, Tuple{Cycles}})
@@ -131,7 +133,7 @@ at 20Hz (about as low as humans can hear).
 """
 function equal_loudness(synthesizer::Map{<:Any, Tuple{Cycles}})
     Map(
-        let multiplier = equivalent_sound_pressure(40, (synthesizer.synthesizers[1].frequency)) / MAXIMUM_PRESSURE
+        let multiplier = equivalent_sound_pressure(MEDIUM_LOUDNESS, (synthesizer.synthesizers[1].frequency)) / MAXIMUM_PRESSURE
             function (amplitude)
                 amplitude * multiplier
             end
