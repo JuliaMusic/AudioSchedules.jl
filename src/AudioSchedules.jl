@@ -94,9 +94,9 @@ To increase richness but also buziness, increase `overtones`.
 ```jldoctest
 julia> using AudioSchedules
 
-julia> compound_wave(3)(π/4)
-1.4428090415820634
-```
+
+julia> compound_wave(3)(π / 4)
+1.4428090415820634``````
 """
 function compound_wave(overtones)
     let overtones = overtones
@@ -120,15 +120,18 @@ inherent length.
 ```jldoctest
 julia> using AudioSchedules
 
+
 julia> using FileIO: load
+
 
 julia> import LibSndFile
 
+
 julia> cd(joinpath(pkgdir(AudioSchedules), "test"))
 
+
 julia> get_duration(load("clunk.wav"))
-0.3518820861678005 s
-```
+0.3518820861678005 s``````
 """
 function get_duration(buffer::SampleBuf)
     (length(buffer) / buffer.samplerate)s
@@ -145,17 +148,21 @@ will never end while they are scheduled.
 ```jldoctest
 julia> using AudioSchedules
 
+
 julia> using Unitful: Hz
+
 
 julia> using FileIO: load
 
+
 julia> import LibSndFile
+
 
 julia> cd(joinpath(pkgdir(AudioSchedules), "test"))
 
-julia> first(make_iterator(load("clunk.wav"), 44100Hz))
-0.00168Q0f15
-```
+
+julia> first(make_iterator(load("clunk.wav"), 44100Hz))    # TODO: support resampling
+0.00168Q0f15``````
 """
 function make_iterator(buffer::SampleBuf, the_sample_rate)
     # TODO: support resampling
@@ -173,11 +180,12 @@ Map `a_function` over `synthesizers`. Supports [`make_iterator`](@ref).
 ```jldoctest
 julia> using AudioSchedules
 
+
 julia> using Unitful: Hz
 
+
 julia> first(make_iterator(Map(sin, Cycles(440Hz)), 44100Hz))
-0.0
-```
+0.0``````
 """
 struct Map{AFunction,Synthesizers}
     a_function::AFunction
@@ -230,11 +238,12 @@ A line from `start` (unitless) with `slope` (with units per time like `1/s`). Su
 ```jldoctest
 julia> using AudioSchedules
 
+
 julia> using Unitful: Hz, s
 
-julia> first(make_iterator(Line(0, 1/s), 44100Hz))
-0.0
-```
+
+julia> first(make_iterator(Line(0, 1 / s), 44100Hz))
+0.0``````
 """
 struct Line
     start::Float64
@@ -274,11 +283,12 @@ Cycles from 0 to 2π to repeat at a `frequency` (with frequency units, like `Hz`
 ```jldoctest
 julia> using AudioSchedules
 
+
 julia> using Unitful: Hz
 
+
 julia> first(make_iterator(Cycles(440Hz), 44100Hz))
-0.0
-```
+0.0``````
 """
 struct Cycles
     frequency::Frequency
@@ -299,11 +309,12 @@ time like `1/s`). Supports [`make_iterator`](@ref) and [`segments`](@ref)..
 ```jldoctest
 julia> using AudioSchedules
 
+
 julia> using Unitful: Hz, s
 
-julia> first(make_iterator(Grow(1, 1/s), 44100Hz))
-1.0
-```
+
+julia> first(make_iterator(Grow(1, 1 / s), 44100Hz))
+1.0``````
 """
 struct Grow
     start::Float64
@@ -341,11 +352,12 @@ with [`envelope`](@ref). Supports [`segments`](@ref).
 ```jldoctest hook
 julia> using AudioSchedules
 
+
 julia> using Unitful: s, Hz
 
-julia> envelope(1, Hook(1/s, 1/s) => 2s, ℯ + 1)
-((Grow(1.0, 1.0 s^-1), 1.0 s), (Line(2.718281828459045, 1.0 s^-1), 1.0 s))
-```
+
+julia> envelope(1, Hook(1 / s, 1 / s) => 2s, ℯ + 1)
+((Grow(1.0, 1.0 s^-1), 1.0 s), (Line(2.718281828459045, 1.0 s^-1), 1.0 s))``````
 """
 struct Hook
     rate::Rate
@@ -364,11 +376,12 @@ where duration has units of time (like `s`), with a segment of shape `shape`. Sh
 ```jldoctest
 julia> using AudioSchedules
 
+
 julia> using Unitful: s
 
+
 julia> segments(1, Grow, 1s, ℯ)
-((Grow(1.0, 1.0 s^-1), 1 s),)
-```
+((Grow(1.0, 1.0 s^-1), 1 s),)``````
 """
 function segments(start_level, ::Type{Grow}, duration, end_level)
     ((Grow(start_level, log(end_level / start_level) / duration), duration),)
@@ -433,11 +446,12 @@ segments(1, Line, 1s, 0)
 ```jldoctest
 julia> using AudioSchedules
 
+
 julia> using Unitful: s
 
+
 julia> envelope(0, Line => 1s, 1, Line => 1s, 0)
-((Line(0.0, 1.0 s^-1), 1 s), (Line(1.0, -1.0 s^-1), 1 s))
-```
+((Line(0.0, 1.0 s^-1), 1 s), (Line(1.0, -1.0 s^-1), 1 s))``````
 """
 function envelope(start_level, (shape, duration), end_level, more_segments...)
     segments(start_level, shape, duration, end_level)...,
@@ -603,11 +617,15 @@ time, like `s`) or an [`envelope`](@ref).
 ```jldoctest audio_schedule
 julia> using AudioSchedules
 
+
 julia> using Unitful: s, Hz
+
 
 julia> an_envelope = envelope(0, Line => 1s, 1, Line => 1s, 0);
 
+
 julia> triple = (Map(sin, Cycles(440Hz)), 0s, an_envelope);
+
 
 julia> a_schedule = AudioSchedule([triple], 44100Hz);
 ```
@@ -616,12 +634,12 @@ You can find the number of samples in an `AudioSchedule` with length.
 
 ```jldoctest audio_schedule
 julia> the_length = length(a_schedule)
-88200
-```
+88200```
 
 You can use the schedule as a source for samples.
 
 ```jldoctest audio_schedule
+
 julia> read(a_schedule, the_length);
 ```
 
@@ -630,8 +648,7 @@ The schedule must have at least one triple.
 ```jldoctest audio_schedule
 julia> AudioSchedule([], 44100Hz)
 ERROR: AudioSchedules require at least one triple
-[...]
-```
+[...]``````
 """
 function AudioSchedule(triples, the_sample_rate)
     triggers = SortedDict{Time,Vector{Tuple{Symbol,Bool}}}()
@@ -681,15 +698,18 @@ like `Hz`), then adjust the volume to `maximum_volume`. Will iterate through tri
 ```jldoctest
 julia> using AudioSchedules
 
+
 julia> using Unitful: s, Hz
+
 
 julia> triple = (Map(sin, Cycles(440Hz)), 0s, 1s);
 
+
 julia> a_schedule = schedule_within([triple, triple], 44100Hz);
 
+
 julia> extrema(a_schedule) .≈ (-1.0, 1.0)
-(true, true)
-```
+(true, true)``````
 """
 function schedule_within(triples, the_sample_rate; maximum_volume = 1.0)
     lower, upper = extrema(AudioSchedule(triples, the_sample_rate))
@@ -738,6 +758,7 @@ and denominator (which defaults to 1) and an octave shift (which defaults to 0).
 ```jldoctest
 julia> using AudioSchedules
 
+
 julia> q"1"
 1//1
 
@@ -755,8 +776,7 @@ julia> q"o2"
 
 julia> q"1 + 1"
 ERROR: LoadError: Can't parse interval 1 + 1
-[...]
-```
+[...]``````
 """
 macro q_str(interval_string::AbstractString)
     a_match = match(QUOTIENT, interval_string)
@@ -779,14 +799,15 @@ from the `peak`, and ramps with ±`slope` (in units per time, like `1/s`) on eac
 ```jldoctest
 julia> using AudioSchedules
 
+
 julia> using Unitful: s
 
+
 julia> pluck(1s)
-((Line(0.0, 200.0 s^-1), 0.005 s), (Grow(1.0, -2.5 s^-1), 0.9945839800394016 s), (Line(0.08320399211967063, -200.0 s^-1), 0.0004160199605983683 s))
-```
+((Line(0.0, 200.0 s^-1), 0.005 s), (Grow(1.0, -2.5 s^-1), 0.9945839800394016 s), (Line(0.08320399211967063, -200.0 s^-1), 0.0004160199605983683 s))``````
 """
-function pluck(time; decay = -2.5/s, slope = 1/0.005s, peak = 1)
-    ramp = peak/slope
+function pluck(time; decay = -2.5 / s, slope = 1 / 0.005s, peak = 1)
+    ramp = peak / slope
     envelope(0, Line => ramp, peak, Hook(decay, -slope) => time - ramp, 0)
 end
 export pluck
@@ -818,26 +839,31 @@ should be a function which takes a duration in units of time (like `s`) and retu
 ```jldoctest
 julia> using AudioSchedules
 
+
 julia> using Unitful: Hz, s
 
+
 julia> SONG = (
-            (q"1" => 1, q"1" => 1, q"5/4" => 1, q"3/2" => 1),
-            (q"2/3" => 1, q"3/2" => 1, q"o1" => 1, q"5/4o1" => 1),
-            (q"3/2" => 1, q"1" => 1, q"5/4" => 1, q"3/2" => 1)
-        );
+           (q"1" => 1, q"1" => 1, q"5/4" => 1, q"3/2" => 1),
+           (q"2/3" => 1, q"3/2" => 1, q"o1" => 1, q"5/4o1" => 1),
+           (q"3/2" => 1, q"1" => 1, q"5/4" => 1, q"3/2" => 1),
+       );
+
 
 julia> a_schedule = justly(SONG, 44100Hz);
 
+
 julia> first(read(a_schedule, length(a_schedule)))
-0.0
-```
+0.0``````
 """
-function justly(chords, the_sample_rate;
+function justly(
+    chords,
+    the_sample_rate;
     key = 440Hz,
     seconds_per_beat = 1s,
     wave = compound_wave(Val(7)),
     make_envelope = pluck,
-    maximum_volume = 1.0
+    maximum_volume = 1.0,
 )
     triples = []
     clock = 0.0s
@@ -845,11 +871,14 @@ function justly(chords, the_sample_rate;
         ratio, beats = notes[1]
         key = key * ratio
         for (ratio, beats) in notes[2:end]
-            push!(triples, (
-                Map(wave, Cycles(key * ratio)),
-                clock,
-                make_envelope(beats * seconds_per_beat),
-            ))
+            push!(
+                triples,
+                (
+                    Map(wave, Cycles(key * ratio)),
+                    clock,
+                    make_envelope(beats * seconds_per_beat),
+                ),
+            )
         end
         clock = clock + beats * seconds_per_beat
     end
