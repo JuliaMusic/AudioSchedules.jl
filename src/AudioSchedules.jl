@@ -96,7 +96,8 @@ julia> using AudioSchedules
 
 
 julia> compound_wave(3)(π / 4)
-1.4428090415820634``````
+1.4428090415820634
+```
 """
 function compound_wave(overtones)
     let overtones = overtones
@@ -131,7 +132,8 @@ julia> cd(joinpath(pkgdir(AudioSchedules), "test"))
 
 
 julia> get_duration(load("clunk.wav"))
-0.3518820861678005 s``````
+0.3518820861678005 s
+```
 """
 function get_duration(buffer::SampleBuf)
     (length(buffer) / buffer.samplerate)s
@@ -162,7 +164,8 @@ julia> cd(joinpath(pkgdir(AudioSchedules), "test"))
 
 
 julia> first(make_iterator(load("clunk.wav"), 44100Hz))    # TODO: support resampling
-0.00168Q0f15``````
+0.00168Q0f15
+```
 """
 function make_iterator(buffer::SampleBuf, the_sample_rate)
     # TODO: support resampling
@@ -185,7 +188,8 @@ julia> using Unitful: Hz
 
 
 julia> first(make_iterator(Map(sin, Cycles(440Hz)), 44100Hz))
-0.0``````
+0.0
+```
 """
 struct Map{AFunction,Synthesizers}
     a_function::AFunction
@@ -243,7 +247,8 @@ julia> using Unitful: Hz, s
 
 
 julia> first(make_iterator(Line(0, 1 / s), 44100Hz))
-0.0``````
+0.0
+```
 """
 struct Line
     start::Float64
@@ -288,7 +293,8 @@ julia> using Unitful: Hz
 
 
 julia> first(make_iterator(Cycles(440Hz), 44100Hz))
-0.0``````
+0.0
+```
 """
 struct Cycles
     frequency::Frequency
@@ -314,7 +320,8 @@ julia> using Unitful: Hz, s
 
 
 julia> first(make_iterator(Grow(1, 1 / s), 44100Hz))
-1.0``````
+1.0
+```
 """
 struct Grow
     start::Float64
@@ -357,7 +364,8 @@ julia> using Unitful: s, Hz
 
 
 julia> envelope(1, Hook(1 / s, 1 / s) => 2s, ℯ + 1)
-((Grow(1.0, 1.0 s^-1), 1.0 s), (Line(2.718281828459045, 1.0 s^-1), 1.0 s))``````
+((Grow(1.0, 1.0 s^-1), 1.0 s), (Line(2.718281828459045, 1.0 s^-1), 1.0 s))
+```
 """
 struct Hook
     rate::Rate
@@ -381,7 +389,8 @@ julia> using Unitful: s
 
 
 julia> segments(1, Grow, 1s, ℯ)
-((Grow(1.0, 1.0 s^-1), 1 s),)``````
+((Grow(1.0, 1.0 s^-1), 1 s),)
+```
 """
 function segments(start_level, ::Type{Grow}, duration, end_level)
     ((Grow(start_level, log(end_level / start_level) / duration), duration),)
@@ -451,7 +460,8 @@ julia> using Unitful: s
 
 
 julia> envelope(0, Line => 1s, 1, Line => 1s, 0)
-((Line(0.0, 1.0 s^-1), 1 s), (Line(1.0, -1.0 s^-1), 1 s))``````
+((Line(0.0, 1.0 s^-1), 1 s), (Line(1.0, -1.0 s^-1), 1 s))
+```
 """
 function envelope(start_level, (shape, duration), end_level, more_segments...)
     segments(start_level, shape, duration, end_level)...,
@@ -634,12 +644,12 @@ You can find the number of samples in an `AudioSchedule` with length.
 
 ```jldoctest audio_schedule
 julia> the_length = length(a_schedule)
-88200```
+88200
+```
 
 You can use the schedule as a source for samples.
 
 ```jldoctest audio_schedule
-
 julia> read(a_schedule, the_length);
 ```
 
@@ -648,7 +658,8 @@ The schedule must have at least one triple.
 ```jldoctest audio_schedule
 julia> AudioSchedule([], 44100Hz)
 ERROR: AudioSchedules require at least one triple
-[...]``````
+[...]
+```
 """
 function AudioSchedule(triples, the_sample_rate)
     triggers = SortedDict{Time,Vector{Tuple{Symbol,Bool}}}()
@@ -709,7 +720,8 @@ julia> a_schedule = schedule_within([triple, triple], 44100Hz);
 
 
 julia> extrema(a_schedule) .≈ (-1.0, 1.0)
-(true, true)``````
+(true, true)
+```
 """
 function schedule_within(triples, the_sample_rate; maximum_volume = 1.0)
     lower, upper = extrema(AudioSchedule(triples, the_sample_rate))
@@ -776,7 +788,8 @@ julia> q"o2"
 
 julia> q"1 + 1"
 ERROR: LoadError: Can't parse interval 1 + 1
-[...]``````
+[...]
+```
 """
 macro q_str(interval_string::AbstractString)
     a_match = match(QUOTIENT, interval_string)
@@ -804,7 +817,8 @@ julia> using Unitful: s
 
 
 julia> pluck(1s)
-((Line(0.0, 200.0 s^-1), 0.005 s), (Grow(1.0, -2.5 s^-1), 0.9945839800394016 s), (Line(0.08320399211967063, -200.0 s^-1), 0.0004160199605983683 s))``````
+((Line(0.0, 200.0 s^-1), 0.005 s), (Grow(1.0, -2.5 s^-1), 0.9945839800394016 s), (Line(0.08320399211967063, -200.0 s^-1), 0.0004160199605983683 s))
+```
 """
 function pluck(time; decay = -2.5 / s, slope = 1 / 0.005s, peak = 1)
     ramp = peak / slope
@@ -854,7 +868,8 @@ julia> a_schedule = justly(SONG, 44100Hz);
 
 
 julia> first(read(a_schedule, length(a_schedule)))
-0.0``````
+0.0
+```
 """
 function justly(
     chords,

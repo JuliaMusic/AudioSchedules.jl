@@ -138,11 +138,12 @@ julia> soft = equal_loudness(Map(cos, Cycles(10000Hz)));
 
 
 julia> first(make_iterator(soft, 44100Hz)) ≈ 0.0053035474
-true```
+true
+```
 
 Technical details: uses the ISO 226:2003 curve for 40 phons. Scales output by a ratio
 of the equivalent sound pressure at the current frequency to the equivalent sound pressure
-at 20Hz (about as low as humans can hear).```
+at 20Hz (about as low as humans can hear).
 """
 function equal_loudness(synthesizer::Map{<:Any,Tuple{Cycles}})
     Map(
