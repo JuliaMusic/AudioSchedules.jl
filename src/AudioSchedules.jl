@@ -473,27 +473,13 @@ end
 
 export envelope
 
-mutable struct AudioSchedule{OuterIterator,OuterState} <: SampleSource
-    outer_iterator::OuterIterator
-    outer_state::OuterState
+mutable struct AudioSchedule <: SampleSource
+    outer_iterator::Vector{Any}
+    outer_state::Int
     inner_iterator::Any
     has_left::Int
     the_sample_rate::Frequency
 end
-
-AudioSchedule(
-    outer_iterator::OuterIterator,
-    outer_state::OuterState,
-    inner_iterator,
-    has_left,
-    the_sample_rate,
-) where {OuterIterator,OuterState} = AudioSchedule{OuterIterator,OuterState}(
-    outer_iterator,
-    outer_state,
-    inner_iterator,
-    has_left,
-    the_sample_rate,
-)
 
 eltype(source::AudioSchedule) = Float64
 
@@ -674,22 +660,21 @@ function AudioSchedule(triples, the_sample_rate)
             triggers,
         )
     end
-    outer_iterator = collect(Generator(
-        let time = 0.0s, orchestra = orchestra, (+) = (+)
-            function ((trigger_time, trigger_list),)
-                samples = round(Int, (trigger_time - time) * the_sample_rate)
-                time = trigger_time
-                iterators =
-                    ((iterator for (iterator, is_on) in values(orchestra) if is_on)...,)
-                for (label, is_on) in trigger_list
-                    iterator, _ = orchestra[label]
-                    orchestra[label] = iterator, is_on
-                end
-                map_iterator(+, iterators...), samples
-            end
-        end,
-        pairs(triggers),
-    ),)
+    outer_iterator = []
+    time = 0.0s
+    for (trigger_time, trigger_list) in pairs(triggers)
+        samples = round(Int, (trigger_time - time) * the_sample_rate)
+        time = trigger_time
+        iterators =
+            ((iterator for (iterator, is_on) in values(orchestra) if is_on)...,)
+        for (label, is_on) in trigger_list
+            iterator, _ = orchestra[label]
+            orchestra[label] = iterator, is_on
+        end
+        if length(iterators) > 0 && samples > 0
+            push!(outer_iterator, (map_iterator(+, iterators...), samples))
+        end
+    end
     outer_result = iterate(outer_iterator)
     if outer_result === nothing
         error("AudioSchedules require at least one triple")
@@ -761,6 +746,15 @@ const QUOTIENT = pattern(
 get_parse(something, default) = parse(Int, something)
 get_parse(::Nothing, default) = default
 
+function q_str(interval_string)
+    a_match = match(QUOTIENT, interval_string)
+    if a_match === nothing
+        error("Can't parse interval $interval_string")
+    end
+    get_parse(a_match["numerator"], 1) // get_parse(a_match["denominator"], 1) *
+    (2 // 1)^get_parse(a_match["octave"], 0)
+end
+
 """
     q"interval"
 
@@ -792,14 +786,7 @@ ERROR: LoadError: Can't parse interval 1 + 1
 ```
 """
 macro q_str(interval_string::AbstractString)
-    a_match = match(QUOTIENT, interval_string)
-    if a_match === nothing
-        error("Can't parse interval $interval_string")
-    end
-    esc(
-        get_parse(a_match["numerator"], 1) // get_parse(a_match["denominator"], 1) *
-        (2 // 1)^get_parse(a_match["octave"], 0),
-    )
+    esc(q_str(interval_string))
 end
 export @q_str
 
@@ -825,81 +812,6 @@ function pluck(time; decay = -2.5 / s, slope = 1 / 0.005s, peak = 1)
     envelope(0, Line => ramp, peak, Hook(decay, -slope) => time - ramp, 0)
 end
 export pluck
-
-"""
-    function justly(chords, the_sample_rate;
-        key = 440Hz,
-        seconds_per_beat = 1s,
-        wave = compound_wave(Val(7)),
-        make_envelope = pluck,
-        maximum_volume = 1.0
-    )
-
-A rudimentary way to synthesize music. Chords should be a nested list of pairs in the form:
-
-```
-(interval, beats)
-```
-
-The first interval in the chord will change the key, and tells how many beats before the
-next chord. You can set beats to 0 to overlap, or to a negative number to "time-travel" back
-in time. The rest of the intervals in the chord will play notes, with the interval showing
-their relationship to the key. `wave` should be a function which takes radians and yields
-amplitudes between -1 and 1, and defaults to a [`compound_wave`](@ref). `make_envelope`
-should be a function which takes a duration in units of time (like `s`) and returns an
-[`envelope`](@ref). It defaults to a [`pluck`](@ref). `maximum_volume` will be passed to
-[`schedule_within`](@ref). For example, to create a simple I-IV-I figure,
-
-```jldoctest
-julia> using AudioSchedules
-
-
-julia> using Unitful: Hz, s
-
-
-julia> SONG = (
-           (q"1" => 1, q"1" => 1, q"5/4" => 1, q"3/2" => 1),
-           (q"2/3" => 1, q"3/2" => 1, q"o1" => 1, q"5/4o1" => 1),
-           (q"3/2" => 1, q"1" => 1, q"5/4" => 1, q"3/2" => 1),
-       );
-
-
-julia> a_schedule = justly(SONG, 44100Hz);
-
-
-julia> first(read(a_schedule, length(a_schedule)))
-0.0
-```
-"""
-function justly(
-    chords,
-    the_sample_rate;
-    key = 440Hz,
-    seconds_per_beat = 1s,
-    wave = compound_wave(Val(7)),
-    make_envelope = pluck,
-    maximum_volume = 1.0,
-)
-    triples = []
-    clock = 0.0s
-    for notes in chords
-        ratio, beats = notes[1]
-        key = key * ratio
-        for (ratio, beats) in notes[2:end]
-            push!(
-                triples,
-                (
-                    Map(wave, Cycles(key * ratio)),
-                    clock,
-                    make_envelope(beats * seconds_per_beat),
-                ),
-            )
-        end
-        clock = clock + beats * seconds_per_beat
-    end
-    schedule_within(triples, the_sample_rate; maximum_volume = maximum_volume)
-end
-export justly
 
 include("equal_loudness.jl")
 
