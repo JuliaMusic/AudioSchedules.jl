@@ -13,6 +13,7 @@ import Base:
     show
 using Base: Generator, IsInfinite, HasEltype, @kwdef, tail
 using Base.Iterators: cycle, take, Zip
+using Base.Meta: ParseError
 using DataStructures: SortedDict
 using Interpolations: CubicSplineInterpolation
 using NLsolve: nlsolve
@@ -643,7 +644,7 @@ The schedule must have at least one triple.
 
 ```jldoctest audio_schedule
 julia> AudioSchedule([], 44100Hz)
-ERROR: AudioSchedules require at least one triple
+ERROR: ArgumentError: AudioSchedules require at least one triple
 [...]
 ```
 """
@@ -665,8 +666,7 @@ function AudioSchedule(triples, the_sample_rate)
     for (trigger_time, trigger_list) in pairs(triggers)
         samples = round(Int, (trigger_time - time) * the_sample_rate)
         time = trigger_time
-        iterators =
-            ((iterator for (iterator, is_on) in values(orchestra) if is_on)...,)
+        iterators = ((iterator for (iterator, is_on) in values(orchestra) if is_on)...,)
         for (label, is_on) in trigger_list
             iterator, _ = orchestra[label]
             orchestra[label] = iterator, is_on
@@ -677,7 +677,7 @@ function AudioSchedule(triples, the_sample_rate)
     end
     outer_result = iterate(outer_iterator)
     if outer_result === nothing
-        error("AudioSchedules require at least one triple")
+        throw(ArgumentError("AudioSchedules require at least one triple"))
     end
     (inner_iterator, has_left), outer_state = outer_result
     AudioSchedule(outer_iterator, outer_state, inner_iterator, has_left, the_sample_rate)
@@ -749,7 +749,7 @@ get_parse(::Nothing, default) = default
 function q_str(interval_string)
     a_match = match(QUOTIENT, interval_string)
     if a_match === nothing
-        error("Can't parse interval $interval_string")
+        throw(Meta.ParseError("Can't parse interval $interval_string"))
     end
     get_parse(a_match["numerator"], 1) // get_parse(a_match["denominator"], 1) *
     (2 // 1)^get_parse(a_match["octave"], 0)
@@ -781,7 +781,7 @@ julia> q"o2"
 4//1
 
 julia> q"1 + 1"
-ERROR: LoadError: Can't parse interval 1 + 1
+ERROR: LoadError: Base.Meta.ParseError("Can't parse interval 1 + 1")
 [...]
 ```
 """
@@ -814,7 +814,7 @@ end
 export pluck
 
 
-@kwdef mutable struct Player{Wave, MakeEnvelope}
+@kwdef mutable struct Player{Wave,MakeEnvelope}
     triples::Vector{Any}
     wave::Wave
     make_envelope::MakeEnvelope
@@ -825,14 +825,21 @@ end
 export Player
 
 """
-    Player(triples; wave = compound_wave(Val(7)), make_envelope = pluck, key = 440Hz, clock = 0s, seconds_per_beat = 1s)
+    Player(
+        triples;
+        wave = compound_wave(Val(7)),
+        make_envelope = pluck,
+        key = 440Hz,
+        clock = 0s,
+        seconds_per_beat = 1s,
+    )
 
 An all-included way of composing music. `wave` should be a a function which takes radians
 and yields amplitudes between -1 and 1 and defaults to a [`compound_wave`](@ref).
 `make_envelope` should be a function which takes a duration in units of time (like `s`) and
 returns an [`envelope`](@ref). It defaults to `pluck`. `key` is the current key of the song.
 `clock` is the current time. Add notes to the song with [`note!`](@ref). Move the clock with
-[`beats!`](@ref). Modulate the key with [`modulate`](@ref). When you are finished, you can
+[`beats!`](@ref). Modulate the key with [`modulate!`](@ref). When you are finished, you can
 create an [`AudioSchedule`](@ref) from the `triples`.
 
 ```jldoctest
@@ -844,14 +851,18 @@ julia> player = Player([]);
 
 julia> note!(player, 1, 1)
 
-julia> a_schedule = AudioSchedule(player.triples, 44100Hz);
-
-julia> first(read(a_schedule, length(a_schedule)))
-0.0
+julia> length(player.triples)
+1
 ```
 """
-Player(triples; wave = compound_wave(Val(7)), make_envelope = pluck, key = 440Hz, clock = 0s, seconds_per_beat = 1s) =
-    Player(triples, wave, make_envelope, key * 1.0, clock * 1.0, seconds_per_beat * 1.0)
+Player(
+    triples;
+    wave = compound_wave(Val(7)),
+    make_envelope = pluck,
+    key = 440Hz,
+    clock = 0s,
+    seconds_per_beat = 1s,
+) = Player(triples, wave, make_envelope, key * 1.0, clock * 1.0, seconds_per_beat * 1.0)
 
 """
     note!(player::Player, ratio, beats)
@@ -905,10 +916,8 @@ julia> beats!(player, 1)
 
 julia> note!(player, 1, 1)
 
-julia> a_schedule = AudioSchedule(player.triples, 44100Hz);
-
-julia> first(read(a_schedule, length(a_schedule)))
-0.0
+julia> length(player.triples)
+2
 ```
 """
 function beats!(player::Player, beats)
@@ -935,10 +944,8 @@ julia> modulate!(player, 2)
 
 julia> note!(player, 1, 1)
 
-julia> a_schedule = AudioSchedule(player.triples, 44100Hz);
-
-julia> first(read(a_schedule, length(a_schedule)))
-0.0
+julia> length(player.triples)
+2
 ```
 """
 function modulate!(player::Player, ratio)
