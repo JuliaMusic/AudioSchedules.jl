@@ -11,7 +11,7 @@ import Base:
     read!,
     setindex!,
     show
-using Base: Generator, IsInfinite, HasEltype, tail
+using Base: Generator, IsInfinite, HasEltype, @kwdef, tail
 using Base.Iterators: cycle, take, Zip
 using DataStructures: SortedDict
 using Interpolations: CubicSplineInterpolation
@@ -163,7 +163,7 @@ julia> import LibSndFile
 julia> cd(joinpath(pkgdir(AudioSchedules), "test"))
 
 
-julia> first(make_iterator(load("clunk.wav"), 44100Hz))    # TODO: support resampling
+julia> first(make_iterator(load("clunk.wav"), 44100Hz))
 0.00168Q0f15
 ```
 """
@@ -812,6 +812,140 @@ function pluck(time; decay = -2.5 / s, slope = 1 / 0.005s, peak = 1)
     envelope(0, Line => ramp, peak, Hook(decay, -slope) => time - ramp, 0)
 end
 export pluck
+
+
+@kwdef mutable struct Player{Wave, MakeEnvelope}
+    triples::Vector{Any}
+    wave::Wave
+    make_envelope::MakeEnvelope
+    key::typeof(440.0Hz)
+    clock::typeof(0.0s)
+    seconds_per_beat::typeof(1.0s)
+end
+export Player
+
+"""
+    Player(triples; wave = compound_wave(Val(7)), make_envelope = pluck, key = 440Hz, clock = 0s, seconds_per_beat = 1s)
+
+An all-included way of composing music. `wave` should be a a function which takes radians
+and yields amplitudes between -1 and 1 and defaults to a [`compound_wave`](@ref).
+`make_envelope` should be a function which takes a duration in units of time (like `s`) and
+returns an [`envelope`](@ref). It defaults to `pluck`. `key` is the current key of the song.
+`clock` is the current time. Add notes to the song with [`note!`](@ref). Move the clock with
+[`beats!`](@ref). Modulate the key with [`modulate`](@ref). When you are finished, you can
+create an [`AudioSchedule`](@ref) from the `triples`.
+
+```jldoctest
+julia> using AudioSchedules
+
+julia> using Unitful: Hz
+
+julia> player = Player([]);
+
+julia> note!(player, 1, 1)
+
+julia> a_schedule = AudioSchedule(player.triples, 44100Hz);
+
+julia> first(read(a_schedule, length(a_schedule)))
+0.0
+```
+"""
+Player(triples; wave = compound_wave(Val(7)), make_envelope = pluck, key = 440Hz, clock = 0s, seconds_per_beat = 1s) =
+    Player(triples, wave, make_envelope, key * 1.0, clock * 1.0, seconds_per_beat * 1.0)
+
+"""
+    note!(player::Player, ratio, beats)
+
+Add a note to the player. `ratio` will be the ratio between the current key and the new
+note, and `beats` is how many beats the note will play for.
+
+```jldoctest
+julia> using AudioSchedules
+
+julia> using Unitful: Hz
+
+julia> player = Player([]);
+
+julia> note!(player, 1, 1)
+
+julia> a_schedule = AudioSchedule(player.triples, 44100Hz);
+
+julia> first(read(a_schedule, length(a_schedule)))
+0.0
+```
+"""
+function note!(player::Player, ratio, beats)
+    push!(
+        player.triples,
+        (
+            Map(player.wave, Cycles(player.key * ratio)),
+            player.clock,
+            player.make_envelope(beats * player.seconds_per_beat),
+        ),
+    )
+    nothing
+end
+export note!
+
+"""
+    beats!(player::Player, beats)
+
+Move the [`Player`](@ref) forward a certain number of `beats`.
+
+```jldoctest
+julia> using AudioSchedules
+
+julia> using Unitful: Hz
+
+julia> player = Player([]);
+
+julia> note!(player, 1, 1)
+
+julia> beats!(player, 1)
+
+julia> note!(player, 1, 1)
+
+julia> a_schedule = AudioSchedule(player.triples, 44100Hz);
+
+julia> first(read(a_schedule, length(a_schedule)))
+0.0
+```
+"""
+function beats!(player::Player, beats)
+    player.clock = player.clock + beats * player.seconds_per_beat
+    nothing
+end
+export beats!
+
+"""
+    modulate!(player::Player, ratio)
+
+Shift the key of the [`Player`](@ref) by `ratio`.
+
+```jldoctest
+julia> using AudioSchedules
+
+julia> using Unitful: Hz
+
+julia> player = Player([]);
+
+julia> note!(player, 1, 1)
+
+julia> modulate!(player, 2)
+
+julia> note!(player, 1, 1)
+
+julia> a_schedule = AudioSchedule(player.triples, 44100Hz);
+
+julia> first(read(a_schedule, length(a_schedule)))
+0.0
+```
+"""
+function modulate!(player::Player, ratio)
+    player.key = player.key * ratio
+    nothing
+end
+export modulate!
 
 include("equal_loudness.jl")
 
