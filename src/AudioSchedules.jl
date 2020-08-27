@@ -238,11 +238,15 @@ julia> cd(joinpath(pkgdir(AudioSchedules), "test"))
 
 julia> first(make_iterator(load("clunk.wav"), 44100Hz))
 0.00168Q0f15
+
+julia> make_iterator(load("clunk.wav"), 48000Hz)
+ERROR: ArgumentError: Sample rate mismatch
+[...]
 ```
 """
 function make_iterator(buffer::SampleBuf, sample_rate)
     if (buffer.samplerate)Hz != sample_rate
-        throw(ArgumentError("Please explicitly convert sample rates of buffers before scheduling"))
+        throw(ArgumentError("Sample rate mismatch"))
     end
     cycle(buffer.data)
 end
@@ -470,7 +474,7 @@ end
 
 Make a hook shape, with an exponential curve growing at a continuous `rate` (with units per
 time like `1/s`), followed by a line with `slope` (with units per time like  `1/s`). Use
-with [`add!`](@ref). Supports [`segments`](@ref).
+with [`add!`](@ref). Supports [`segments`](@ref). Not all hooks are solvable.
 
 ```jldoctest hook
 julia> using AudioSchedules
@@ -484,6 +488,9 @@ julia> plan = Plan(44100Hz);
 
 julia> add!(plan, Map(sin, Cycles(440Hz)), 0s, 1, Hook(1 / s, 1 / s) => 2s, ℯ + 1)
 
+julia> add!(plan, Map(sin, Cycles(440Hz)), 0s, 1, Hook(1 / s, 1 / s) => 2s, 0)
+ERROR: Unsolvable hook
+[...]
 ```
 """
 struct Hook
@@ -535,7 +542,7 @@ export AudioSchedule
 function initialize(statefuls_samples)
     stateful_samples_state = iterate(statefuls_samples)
     if stateful_samples_state === nothing
-        throw(ArgumentError("AudioSchedules require at least one triple"))
+        throw(ArgumentError("AudioSchedules require at least one synthesizer"))
     end
     (stateful, has_left), state = stateful_samples_state
     _, first_item_state = detach_state(stateful)
@@ -766,6 +773,10 @@ julia> add!(plan, Map(sin, Cycles(440Hz)), 0s, 0, Line => 1s, 1, Line => 1s, 0)
 
 julia> collect(keys(plan.triggers)) == [0.0s, 1.0s, 2.0s]
 true
+
+julia> AudioSchedule(Plan(44100Hz))
+ERROR: ArgumentError: AudioSchedules require at least one synthesizer
+[...]
 ```
 """
 function add!(plan::Plan, synthesizer, start_time, piece_1, rest...)
