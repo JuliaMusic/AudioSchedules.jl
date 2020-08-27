@@ -24,5 +24,5 @@ jobs:
       - uses: codecov/codecov-action@v1
         with:
           file: ./lcov.info
-      - uses: domluna/julia-format@master
+      - uses: julia-actions/julia-format@master
         continue-on-error: true
