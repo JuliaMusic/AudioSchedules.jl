@@ -62,7 +62,7 @@ export get_duration
 """
     skip(iterator, state, ahead)
 
-`ahead = 1` is equivalent to getting the new state from `iterate(iterator, state)`
+`ahead = 1` is equivalent to getting the new state from `iterate(iterator, state)`.
 Increasing `ahead` by `1` will be as if you iterated and then discarded.
 """
 function skip(::Array, state, ahead)
@@ -72,7 +72,7 @@ end
 """
     preview(iterator, state, ahead)
 
-`ahead = 1` is equivalent to getting the item from `iterate(iterator, state)`
+`ahead = 1` is equivalent to getting the item from `iterate(iterator, state)`.
 Increasing `ahead` by `1` will be as if you iterated and then discarded.
 """
 function preview(data::Array, state, ahead)
@@ -222,7 +222,9 @@ end
 
 Return an iterator that will the play the `synthesizer` at `sample_rate` (with frequency
 units, like `Hz`). The iterator should yield ratios between -1 and 1. Assumes that iterators
-will never end while they are scheduled.
+will never end while they are scheduled. In addition to supporting `iterate`, iterators should
+also support [`AudioSchedules.preview`](@ref) and [`AudioSchedules.skip`](@ref), and iteration 
+should have no side effects.
 
 ```jldoctest
 julia> using AudioSchedules
@@ -446,7 +448,7 @@ end
     Grow(start_level, rate)
 
 Exponentially grow or decay from `start_level` (unitless), at a continuous `rate` (with units per
-time like `1/s`). Supports [`make_iterator`](@ref) and [`segments`](@ref)..
+time like `1/s`). Supports [`make_iterator`](@ref) and [`segments`](@ref).
 
 ```jldoctest
 julia> using AudioSchedules
@@ -834,13 +836,9 @@ export add!
 const SUM_OF = Generator{<:Zip{<:Tuple}, Splat{typeof(+)}}
 
 """
-    AudioSchedule(triples, sample_rate)
+    AudioSchedule(plan::Plan)
 
-Return a `SampledSource`. `triples` should be a vector of triples in the form
-
-```
-(synthesizer, start_time, duration_or_envelope)
-```
+Return a `SampledSource` from a [`Plan`](@ref).
 
 ```jldoctest audio_schedule
 julia> using AudioSchedules
