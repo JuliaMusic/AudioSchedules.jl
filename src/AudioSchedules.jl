@@ -13,7 +13,7 @@ import Base:
     setindex!,
     show
 using Base: Generator, IsInfinite, HasEltype, @kwdef, tail
-using Base.Iterators: cycle, take, Zip
+using Base.Iterators: Zip
 using Base.Meta: ParseError
 using DataStructures: SortedDict
 using Interpolations: CubicSplineInterpolation
@@ -31,6 +31,54 @@ const FREQUENCY = typeof(1.0Hz)
 const TRIGGERS = SortedDict{TIME, Vector{Tuple{Symbol, Bool}}}
 const ORCHESTRA = Dict{Symbol, Tuple{Any, Bool}}
 
+"""
+    get_duration(synthesizer)
+
+Get the duration of a synthesizer (with units of time, like `s`), for synthesizers with an
+inherent length.
+
+```jldoctest
+julia> using AudioSchedules
+
+
+julia> using FileIO: load
+
+
+julia> using LibSndFile: LibSndFile
+
+
+julia> cd(joinpath(pkgdir(AudioSchedules), "test"))
+
+
+julia> get_duration(load("clunk.wav"))
+0.351859410430839 s
+```
+"""
+function get_duration(buffer::SampleBuf)
+    ((length(buffer) - 1) / buffer.samplerate)s
+end
+export get_duration
+
+"""
+    skip(iterator, state, ahead)
+
+`ahead = 1` is equivalent to getting the new state from `iterate(iterator, state)`
+Increasing `ahead` by `1` will be as if you iterated and then discarded.
+"""
+function skip(::Array, state, ahead)
+    state + ahead
+end
+
+"""
+    preview(iterator, state, ahead)
+
+`ahead = 1` is equivalent to getting the item from `iterate(iterator, state)`
+Increasing `ahead` by `1` will be as if you iterated and then discarded.
+"""
+function preview(data::Array, state, ahead)
+    data[state + ahead - 1]
+end
+
 function detach_state(a_map::Generator)
     stateful = a_map.iter
     iterator, item_state = detach_state(stateful)
@@ -46,25 +94,9 @@ function skip(a_map::Generator, state, ahead)
     skip(a_map.iter, state, ahead)
 end
 
-"""
-    skip(iterator, state, ahead)
-
-`ahead = 1` is equivalent to getting the new state from `iterate(iterator, state)`
-Increasing `ahead` by `1` will be as if you iterated and then discarded.
-"""
-skip
-
 function preview(a_map::Generator, state, ahead)
     a_map.f(preview(a_map.iter, state, ahead))
 end
-
-"""
-    preview(iterator, state, ahead)
-
-`ahead = 1` is equivalent to getting the item from `iterate(iterator, state)`
-Increasing `ahead` by `1` will be as if you iterated and then discarded.
-"""
-preview
 
 function detach_state(a_zip::Zip)
     statefuls = a_zip.is
@@ -186,34 +218,6 @@ function (saw::SawTooth{overtones})(an_angle) where {overtones}
 end
 
 """
-    get_duration(synthesizer)
-
-Get the duration of a synthesizer (with units of time, like `s`), for synthesizers with an
-inherent length.
-
-```jldoctest
-julia> using AudioSchedules
-
-
-julia> using FileIO: load
-
-
-julia> using LibSndFile: LibSndFile
-
-
-julia> cd(joinpath(pkgdir(AudioSchedules), "test"))
-
-
-julia> get_duration(load("clunk.wav"))
-0.3518820861678005 s
-```
-"""
-function get_duration(buffer::SampleBuf)
-    (length(buffer) / buffer.samplerate)s
-end
-export get_duration
-
-"""
     make_iterator(synthesizer, sample_rate)
 
 Return an iterator that will the play the `synthesizer` at `sample_rate` (with frequency
@@ -248,7 +252,7 @@ function make_iterator(buffer::SampleBuf, sample_rate)
     if (buffer.samplerate)Hz != sample_rate
         throw(ArgumentError("Sample rate mismatch"))
     end
-    cycle(buffer.data)
+    buffer.data
 end
 
 export make_iterator
@@ -721,11 +725,34 @@ end
     add!(plan::Plan, synthesizer, start_time)
 
 Add a synthesizer to the plan, where `synthesizer` must support [`make_iterator`](@ref) and [`get_duration`](@ref).
+
+```jldoctest
+julia> using AudioSchedules
+
+
+julia> using FileIO: load
+
+
+julia> using LibSndFile: LibSndFile
+
+julia> using Unitful: Hz, s
+
+
+julia> cd(joinpath(pkgdir(AudioSchedules), "test"))
+
+julia> plan = Plan(44100Hz);
+
+julia> add!(plan, load("clunk.wav"), 0s)
+
+julia> schedule = AudioSchedule(plan);
+
+julia> read(schedule, length(schedule));
+```
 """
 function add!(plan, synthesizer, start_time)
     add_iterator!(
         plan,
-        make_iterator(synthesizer, plan.sample_rate),
+        InfiniteStateful(make_iterator(synthesizer, plan.sample_rate)),
         start_time,
         get_duration(synthesizer),
     )
@@ -843,7 +870,6 @@ You can use the schedule as a source for samples.
 
 ```jldoctest audio_schedule
 julia> read(a_schedule, the_length);
-
 ```
 """
 function AudioSchedule(plan::Plan)
