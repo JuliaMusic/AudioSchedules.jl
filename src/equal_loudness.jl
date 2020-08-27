@@ -145,7 +145,7 @@ Technical details: uses the ISO 226:2003 curve for 40 phons. Scales output by a 
 of the equivalent sound pressure at the current frequency to the equivalent sound pressure
 at 20Hz (about as low as humans can hear).
 """
-function equal_loudness(synthesizer::Map{<:Any,Tuple{Cycles}})
+function equal_loudness(synthesizer::Map{<:Any, Tuple{Cycles}})
     Map(
         let multiplier =
                 equivalent_sound_pressure(
