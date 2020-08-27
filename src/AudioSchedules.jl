@@ -668,8 +668,7 @@ julia> using AudioSchedules
 julia> using Unitful: Hz
 
 
-julia> Plan(44100Hz)
-Plan(44100.0 s^-1, Dict{Symbol,Tuple{Any,Bool}}(), DataStructures.SortedDict{Unitful.Quantity{Float64,𝐓,Unitful.FreeUnits{(s,),𝐓,nothing}},Array{Tuple{Symbol,Bool},1},Base.Order.ForwardOrdering}())
+julia> Plan(44100Hz);
 ```
 """
 struct Plan
@@ -765,11 +764,8 @@ julia> plan = Plan(44100Hz);
 julia> add!(plan, Map(sin, Cycles(440Hz)), 0s, 0, Line => 1s, 1, Line => 1s, 0)
 
 
-julia> collect(keys(plan.triggers))
-3-element Array{Unitful.Quantity{Float64,𝐓,Unitful.FreeUnits{(s,),𝐓,nothing}},1}:
- 0.0 s
- 1.0 s
- 2.0 s
+julia> collect(keys(plan.triggers)) == [0.0s, 1.0s, 2.0s]
+true
 ```
 """
 function add!(plan::Plan, synthesizer, start_time, piece_1, rest...)
