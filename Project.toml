@@ -18,6 +18,7 @@ julia = "1.5"
 NLsolve = "4.4"
 RegularExpressions = "0.1"
 SampledSignals = "2.1"
+Unitful = "0.17,1.4"
 
 [extras]
 Documenter = "e30172f5-a6a5-5a46-863b-614d45cd2de4"
