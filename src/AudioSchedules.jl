@@ -353,8 +353,8 @@ end
 """
     segments(shape, start_level, duration, end_level)
 
-Called by [`envelope`](@ref). Return a tuple of pairs in the form `(segment, duration)`,
-where duration has units of time (like `s`), with a segment of shape `shape`.
+Called for each envelope segment passed to [`add!`](@ref). Return a tuple of pairs in the form `(segment, duration)`,
+where duration has units of time (like `s`), for a segment of shape `shape`.
 
 ```jldoctest
 julia> using AudioSchedules
