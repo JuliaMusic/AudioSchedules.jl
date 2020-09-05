@@ -489,8 +489,8 @@ julia> using AudioSchedules
 julia> using Unitful: Hz, s
 
 
-julia> plan = Plan(44100Hz);
-
+julia> plan = Plan(44100Hz)
+Plan with triggers at ()
 
 julia> add!(plan, Map(sin, Cycles(440Hz)), 0s, 1, Hook(1 / s, 1 / s) => 2s, ℯ + 1)
 
@@ -537,32 +537,35 @@ end
 mutable struct AudioSchedule{Iterator} <: SampleSource
     statefuls_samples::Vector{Tuple{Iterator, Int}}
     sample_rate::FREQUENCY
-    state::Int
+    outer_state::Int
     stateful::Iterator
     has_left::Int
-    first_item_state::Any
+    first_item_states::Vector{Any}
 end
 
 export AudioSchedule
-
-function initialize(statefuls_samples)
-    stateful_samples_state = iterate(statefuls_samples)
-    if stateful_samples_state === nothing
-        throw(ArgumentError("AudioSchedules require at least one synthesizer"))
-    end
-    (stateful, has_left), state = stateful_samples_state
-    _, first_item_state = detach_state(stateful)
-    state, stateful, has_left, first_item_state
-end
 
 function AudioSchedule(
     statefuls_samples::Vector{Tuple{Iterator, Int}},
     sample_rate,
 ) where {Iterator}
+    stateful_samples_state = iterate(statefuls_samples)
+    if stateful_samples_state === nothing
+        throw(ArgumentError("AudioSchedules require at least one synthesizer"))
+    end
+    (stateful, has_left), outer_state = stateful_samples_state
+    first_item_states = Vector{Any}(undef, length(statefuls_samples))
+    map!(
+        function ((stateful, samples),)
+            detach_state(stateful)[2]
+        end,
+        first_item_states,
+        statefuls_samples
+    )
     AudioSchedule{Iterator}(
         statefuls_samples,
         sample_rate,
-        initialize(statefuls_samples)...,
+        outer_state, stateful, has_left, first_item_states
     )
 end
 
@@ -571,6 +574,10 @@ eltype(::AudioSchedule) = Float64
 nchannels(source::AudioSchedule) = 1
 
 samplerate(source::AudioSchedule) = source.sample_rate / Hz
+
+function show(io::IO, a_schedule::AudioSchedule)
+    print(io, "AudioSchedule")
+end
 
 function length(source::AudioSchedule)
     sum((samples for (_, samples) in source.statefuls_samples))
@@ -597,8 +604,8 @@ julia> using AudioSchedules
 julia> using Unitful: Hz, s
 
 
-julia> plan = Plan(44100Hz);
-
+julia> plan = Plan(44100Hz)
+Plan with triggers at ()
 
 julia> add!(plan, Map(sin, Cycles(440Hz)), 0s, 0, Line => 1s, 1, Line => 1s, 0)
 
@@ -617,8 +624,13 @@ end
 export seek_peak
 
 @noinline function switch_iterator!(source, buf, frameoffset, framecount, ::Nothing, until)
-    source.state, source.stateful, source.has_left, source.first_item_state =
-        initialize(source.statefuls_samples)
+    foreach(
+        function ((stateful, samples), item_state)
+            attach_state!(stateful, item_state)
+        end,
+        source.statefuls_samples,
+        source.first_item_states
+    )
     until
 end
 @noinline function switch_iterator!(
@@ -629,8 +641,7 @@ end
     stateful_samples_state,
     until,
 )
-    (stateful, source.has_left), source.state = stateful_samples_state
-    _, source.first_item_state = detach_state(stateful)
+    (stateful, source.has_left), source.outer_state = stateful_samples_state
     source.stateful = stateful
     unsafe_read!(source, buf, frameoffset, framecount, until + 1)
 end
@@ -656,13 +667,12 @@ function unsafe_read!(source::AudioSchedule, buf, frameoffset, framecount, from 
     else
         until = from + has_left - 1
         inner_fill!(stateful, buf, from:until)
-        attach_state!(stateful, source.first_item_state)
         switch_iterator!(
             source,
             buf,
             frameoffset,
             framecount,
-            iterate(source.statefuls_samples, source.state),
+            iterate(source.statefuls_samples, source.outer_state),
             until,
         )
     end
@@ -681,7 +691,8 @@ julia> using AudioSchedules
 julia> using Unitful: Hz
 
 
-julia> Plan(44100Hz);
+julia> Plan(44100Hz)
+Plan with triggers at ()
 ```
 """
 struct Plan
@@ -691,6 +702,10 @@ struct Plan
 end
 
 export Plan
+
+function show(io::IO, plan::Plan)
+    print(io, "Plan with triggers at $((keys(plan.triggers)...,))")
+end
 
 Plan(sample_rate) = Plan(sample_rate, ORCHESTRA(), TRIGGERS())
 
@@ -742,13 +757,21 @@ julia> using Unitful: Hz, s
 
 julia> cd(joinpath(pkgdir(AudioSchedules), "test"))
 
-julia> plan = Plan(44100Hz);
+julia> plan = Plan(44100Hz)
+Plan with triggers at ()
 
 julia> add!(plan, load("clunk.wav"), 0s)
 
-julia> schedule = AudioSchedule(plan);
+julia> plan
+Plan with triggers at (0.0 s, 0.351859410430839 s)
 
-julia> read(schedule, length(schedule));
+julia> a_schedule = AudioSchedule(plan)
+AudioSchedule
+
+julia> read(a_schedule, length(a_schedule))
+15517-frame, 1-channel SampleBuf{Float64, 2}
+0.351859410430839s sampled at 44100.0Hz
+▇▇▇▇▇▇▇▆▆▆▆▅▅▅▅▅▅▅▅▅▅▅▅▅▅▄▅▅▄▄▅▄▄▄▄▄▄▄▄▄▄▄▃▄▄▄▃▄▄▃▄▄▄▃▃▃▃▃▃▃▃▃▃▃▃▃▃▃▃▃▂▃▃▃▂▃▃▂▂▂
 ```
 """
 function add!(plan, synthesizer, start_time)
@@ -794,14 +817,14 @@ julia> using AudioSchedules
 julia> using Unitful: Hz, s
 
 
-julia> plan = Plan(44100Hz);
-
+julia> plan = Plan(44100Hz)
+Plan with triggers at ()
 
 julia> add!(plan, Map(sin, Cycles(440Hz)), 0s, 0, Line => 1s, 1, Line => 1s, 0)
 
 
-julia> collect(keys(plan.triggers)) == [0.0s, 1.0s, 2.0s]
-true
+julia> plan
+Plan with triggers at (0.0 s, 1.0 s, 2.0 s)
 
 julia> AudioSchedule(Plan(44100Hz))
 ERROR: ArgumentError: AudioSchedules require at least one synthesizer
@@ -847,14 +870,14 @@ julia> using AudioSchedules
 julia> using Unitful: s, Hz
 
 
-julia> plan = Plan(44100Hz);
-
+julia> plan = Plan(44100Hz)
+Plan with triggers at ()
 
 julia> add!(plan, Map(sin, Cycles(440Hz)), 0s, 0, Line => 1s, 1, Line => 1s, 0)
 
 
-julia> a_schedule = AudioSchedule(plan);
-
+julia> a_schedule = AudioSchedule(plan)
+AudioSchedule
 ```
 
 You can find the number of samples in an `AudioSchedule` with length.
@@ -867,7 +890,10 @@ julia> the_length = length(a_schedule)
 You can use the schedule as a source for samples.
 
 ```jldoctest audio_schedule
-julia> read(a_schedule, the_length);
+julia> read(a_schedule, the_length)
+88200-frame, 1-channel SampleBuf{Float64, 2}
+2.0s sampled at 44100.0Hz
+▄▄▅▅▅▆▆▆▆▆▆▆▆▆▇▇▇▇▇▇▇▇▇▇▇▇▇▇▇▇▇▇▇▇▇▇▇▇▇▇▇▇▇▇▇▇▇▇▇▇▇▇▇▇▇▇▇▇▇▇▇▇▇▇▇▇▆▆▆▆▆▆▆▆▆▅▅▅▄▄
 ```
 """
 function AudioSchedule(plan::Plan)
@@ -924,16 +950,16 @@ julia> using AudioSchedules
 julia> using Unitful: Hz, s
 
 
-julia> plan = Plan(44100Hz);
-
+julia> plan = Plan(44100Hz)
+Plan with triggers at ()
 
 julia> add!(plan, Map(sin, Cycles(440Hz)), 0s, 0, Line => 1s, 1, Line => 1s, 0)
 
 
-julia> schedule = AudioSchedule(plan);
+julia> a_schedule = AudioSchedule(plan)
+AudioSchedule
 
-
-julia> seek_peak(map(Scale(2), schedule))
+julia> seek_peak(map(Scale(2), a_schedule))
 1.9988535332523039
 ```
 """
@@ -967,7 +993,7 @@ const QUOTIENT = pattern(
     CONSTANTS.stop,
 )
 
-get_parse(something, default) = parse(Int, something)
+get_parse(something, _) = parse(Int, something)
 get_parse(::Nothing, default) = default
 
 function q_str(interval_string)
