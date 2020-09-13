@@ -537,10 +537,12 @@ end
 mutable struct AudioSchedule{Iterator} <: SampleSource
     statefuls_samples::Vector{Tuple{Iterator, Int}}
     sample_rate::FREQUENCY
+    first_item_states::Vector{Any}
     outer_state::Int
     stateful::Iterator
     has_left::Int
-    first_item_states::Vector{Any}
+    AudioSchedule{Iterator}(statefuls_samples, sample_rate, first_item_states) where {Iterator} = 
+        new{Iterator}(statefuls_samples, sample_rate, first_item_states)
 end
 
 export AudioSchedule
@@ -549,11 +551,6 @@ function AudioSchedule(
     statefuls_samples::Vector{Tuple{Iterator, Int}},
     sample_rate,
 ) where {Iterator}
-    stateful_samples_state = iterate(statefuls_samples)
-    if stateful_samples_state === nothing
-        throw(ArgumentError("AudioSchedules require at least one synthesizer"))
-    end
-    (stateful, has_left), outer_state = stateful_samples_state
     first_item_states = Vector{Any}(undef, length(statefuls_samples))
     map!(
         function ((stateful, samples),)
@@ -562,11 +559,9 @@ function AudioSchedule(
         first_item_states,
         statefuls_samples
     )
-    AudioSchedule{Iterator}(
-        statefuls_samples,
-        sample_rate,
-        outer_state, stateful, has_left, first_item_states
-    )
+    result = AudioSchedule{Iterator}(statefuls_samples, sample_rate, first_item_states)
+    replace_iterator!(result, iterate(statefuls_samples))
+    result
 end
 
 eltype(::AudioSchedule) = Float64
@@ -623,7 +618,7 @@ function seek_peak(a_schedule::AudioSchedule)
 end
 export seek_peak
 
-@noinline function switch_iterator!(source, buf, frameoffset, framecount, ::Nothing, until)
+@noinline function replace_iterator!(source, ::Nothing)
     foreach(
         function ((stateful, samples), item_state)
             attach_state!(stateful, item_state)
@@ -631,18 +626,28 @@ export seek_peak
         source.statefuls_samples,
         source.first_item_states
     )
+    nothing
+end
+
+@noinline function replace_iterator!(source, stateful_samples_state)
+    (stateful, source.has_left), source.outer_state = stateful_samples_state
+    source.stateful = stateful
+    nothing
+end
+
+function next_iterator!(source, stateful_samples_state::Nothing, _, __, ___, until)
+    replace_iterator!(source, stateful_samples_state)
     until
 end
-@noinline function switch_iterator!(
+function next_iterator!(
     source,
+    stateful_samples_state,
     buf,
     frameoffset,
     framecount,
-    stateful_samples_state,
     until,
 )
-    (stateful, source.has_left), source.outer_state = stateful_samples_state
-    source.stateful = stateful
+    replace_iterator!(source, stateful_samples_state)
     unsafe_read!(source, buf, frameoffset, framecount, until + 1)
 end
 
@@ -667,12 +672,12 @@ function unsafe_read!(source::AudioSchedule, buf, frameoffset, framecount, from 
     else
         until = from + has_left - 1
         inner_fill!(stateful, buf, from:until)
-        switch_iterator!(
+        next_iterator!(
             source,
+            iterate(source.statefuls_samples, source.outer_state),
             buf,
             frameoffset,
             framecount,
-            iterate(source.statefuls_samples, source.outer_state),
             until,
         )
     end
@@ -827,8 +832,7 @@ julia> plan
 Plan with triggers at (0.0 s, 1.0 s, 2.0 s)
 
 julia> AudioSchedule(Plan(44100Hz))
-ERROR: ArgumentError: AudioSchedules require at least one synthesizer
-[...]
+AudioSchedule
 ```
 """
 function add!(plan::Plan, synthesizer, start_time, piece_1, rest...)
