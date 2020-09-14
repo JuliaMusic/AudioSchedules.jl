@@ -575,7 +575,12 @@ function show(io::IO, a_schedule::AudioSchedule)
 end
 
 function length(source::AudioSchedule)
-    sum((samples for (_, samples) in source.statefuls_samples))
+    statefuls_samples = source.statefuls_samples
+    if length(statefuls_samples) == 0
+        0
+    else
+        sum((samples for (_, samples) in statefuls_samples))
+    end
 end
 
 @noinline function update_peak(stateful, samples, peak)
@@ -662,24 +667,28 @@ end
 end
 
 function unsafe_read!(source::AudioSchedule, buf, frameoffset, framecount, from = 1)
-    has_left = source.has_left
-    stateful = source.stateful
-    empties = framecount - from + 1
-    if (has_left > empties)
-        source.has_left = has_left - empties
-        inner_fill!(stateful, buf, from:framecount)
-        framecount
+    if isdefined(source, :stateful)
+        has_left = source.has_left
+        stateful = source.stateful
+        empties = framecount - from + 1
+        if (has_left > empties)
+            source.has_left = has_left - empties
+            inner_fill!(stateful, buf, from:framecount)
+            framecount
+        else
+            until = from + has_left - 1
+            inner_fill!(stateful, buf, from:until)
+            next_iterator!(
+                source,
+                iterate(source.statefuls_samples, source.outer_state),
+                buf,
+                frameoffset,
+                framecount,
+                until,
+            )
+        end
     else
-        until = from + has_left - 1
-        inner_fill!(stateful, buf, from:until)
-        next_iterator!(
-            source,
-            iterate(source.statefuls_samples, source.outer_state),
-            buf,
-            frameoffset,
-            framecount,
-            until,
-        )
+        0
     end
 end
 
@@ -831,8 +840,13 @@ julia> add!(plan, Map(sin, Cycles(440Hz)), 0s, 0, Line => 1s, 1, Line => 1s, 0)
 julia> plan
 Plan with triggers at (0.0 s, 1.0 s, 2.0 s)
 
-julia> AudioSchedule(Plan(44100Hz))
+julia> empty_plan = AudioSchedule(Plan(44100Hz))
 AudioSchedule
+
+julia> read(empty_plan, length(empty_plan))
+0-frame, 1-channel SampleBuf{Float64, 2}
+0.0s sampled at 44100.0Hz
+
 ```
 """
 function add!(plan::Plan, synthesizer, start_time, piece_1, rest...)
