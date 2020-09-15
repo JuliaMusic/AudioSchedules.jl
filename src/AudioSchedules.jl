@@ -13,7 +13,7 @@ import Base:
     setindex!,
     show
 using Base: Generator, IsInfinite, HasEltype, @kwdef, tail
-using Base.Iterators: Zip
+using Base.Iterators: repeated, Repeated, Zip
 using Base.Meta: ParseError
 using DataStructures: SortedDict
 using Interpolations: CubicSplineInterpolation
@@ -289,8 +289,19 @@ struct Splat{AFunction}
 end
 (splat::Splat)(arguments) = splat.a_function(arguments...)
 
+identity(::typeof(*), iterator::Repeated) = iterator.x == 1
+identity(_, __) = false
+
 function map_iterator(a_function, iterators...)
-    Generator(Splat(a_function), zip(iterators...))
+    useful = filter(
+        iterator -> !identity(a_function, iterator),
+        iterators
+    )
+    if length(useful) == 0
+        repeated(1)
+    else
+        Generator(Splat(a_function), zip(useful...))
+    end
 end
 
 function make_iterator(a_map::Map, sample_rate)
@@ -347,7 +358,11 @@ end
 export Line
 
 function make_iterator(line::Line, sample_rate)
-    LineIterator(line.start_level, line.slope / sample_rate)
+    if line.slope == 0
+        repeated(line.start_level)
+    else
+        LineIterator(line.start_level, line.slope / sample_rate)
+    end
 end
 
 """
@@ -891,7 +906,7 @@ julia> using Unitful: s, Hz
 julia> plan = Plan(44100Hz)
 Plan with triggers at ()
 
-julia> add!(plan, Map(sin, Cycles(440Hz)), 0s, 0, Line => 1s, 1, Line => 1s, 0)
+julia> add!(plan, Map(sin, Cycles(440Hz)), 0s, 0, Line => 1s, 1, Line => 1s, 1, Line => 1s, 0)
 
 
 julia> a_schedule = AudioSchedule(plan)
@@ -902,16 +917,16 @@ You can find the number of samples in an `AudioSchedule` with length.
 
 ```jldoctest audio_schedule
 julia> the_length = length(a_schedule)
-88200
+132300
 ```
 
 You can use the schedule as a source for samples.
 
 ```jldoctest audio_schedule
 julia> read(a_schedule, the_length)
-88200-frame, 1-channel SampleBuf{Float64, 2}
-2.0s sampled at 44100.0Hz
-▄▄▅▅▅▆▆▆▆▆▆▆▆▆▇▇▇▇▇▇▇▇▇▇▇▇▇▇▇▇▇▇▇▇▇▇▇▇▇▇▇▇▇▇▇▇▇▇▇▇▇▇▇▇▇▇▇▇▇▇▇▇▇▇▇▇▆▆▆▆▆▆▆▆▆▅▅▅▄▄
+132300-frame, 1-channel SampleBuf{Float64, 2}
+3.0s sampled at 44100.0Hz
+▄▅▅▆▆▆▆▆▆▇▇▇▇▇▇▇▇▇▇▇▇▇▇▇▇▇▇▇▇▇▇▇▇▇▇▇▇▇▇▇▇▇▇▇▇▇▇▇▇▇▇▇▇▇▇▇▇▇▇▇▇▇▇▇▇▇▇▇▇▇▇▆▆▆▆▆▆▅▅▄
 ```
 """
 function AudioSchedule(plan::Plan)
