@@ -79,6 +79,14 @@ function preview(data::Array, state, ahead)
     data[state + ahead - 1]
 end
 
+function skip(::Repeated, __, ___)
+    nothing
+end
+
+function preview(iterator::Repeated, _, __)
+    iterator.x
+end
+
 function detach_state(a_map::Generator)
     stateful = a_map.iter
     iterator, item_state = detach_state(stateful)
@@ -289,7 +297,7 @@ struct Splat{AFunction}
 end
 (splat::Splat)(arguments) = splat.a_function(arguments...)
 
-identity(::typeof(*), iterator::Repeated) = iterator.x == 1
+identity(::typeof(*), iterator::Repeated) = iterator.x ≈ 1
 identity(_, __) = false
 
 function map_iterator(a_function, iterators...)
@@ -358,7 +366,7 @@ end
 export Line
 
 function make_iterator(line::Line, sample_rate)
-    if line.slope == 0
+    if abs(line.slope) < 1 / 1000s
         repeated(line.start_level)
     else
         LineIterator(line.start_level, line.slope / sample_rate)
