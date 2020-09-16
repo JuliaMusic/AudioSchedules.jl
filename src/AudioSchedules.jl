@@ -683,7 +683,7 @@ end
     iterator, state = detach_state(stateful)
     offset = first(a_range) - 1
     @threads for index in a_range
-        buf[index] = preview(iterator, state, index - offset)
+        @inbounds buf[index] = preview(iterator, state, index - offset)
     end
     attach_state!(stateful, skip(iterator, state, length(a_range)))
     nothing
