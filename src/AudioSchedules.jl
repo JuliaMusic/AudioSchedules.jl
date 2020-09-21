@@ -7,13 +7,13 @@ import Base:
     IteratorEltype,
     IteratorSize,
     length,
-    map,
     push_widen,
     read!,
     setindex!,
     show
 using Base: Generator, IsInfinite, HasEltype, @kwdef, tail
-using Base.Iterators: repeated, Repeated, Zip
+using Base.FastMath: sin_fast
+using Base.Iterators: repeated, Stateful, Repeated, Zip
 using Base.Meta: ParseError
 using DataStructures: SortedDict
 using Interpolations: CubicSplineInterpolation
@@ -31,33 +31,12 @@ const FREQUENCY = typeof(1.0Hz)
 const TRIGGERS = SortedDict{TIME, Vector{Tuple{Symbol, Bool}}}
 const ORCHESTRA = Dict{Symbol, Tuple{Any, Bool}}
 
-"""
-    get_duration(synthesizer)
-
-Get the duration of a synthesizer (with units of time, like `s`), for synthesizers with an
-inherent length.
-
-```jldoctest
-julia> using AudioSchedules
-
-
-julia> using FileIO: load
-
-
-julia> using LibSndFile: LibSndFile
-
-
-julia> cd(joinpath(pkgdir(AudioSchedules), "test"))
-
-
-julia> get_duration(load("clunk.wav"))
-0.351859410430839 s
-```
-"""
-function get_duration(buffer::SampleBuf)
-    ((length(buffer) - 1) / buffer.samplerate)s
-end
-export get_duration
+my_stateful(repeated::Repeated) = 
+    repeated
+my_stateful(iterator::Generator) = 
+    Generator(iterator.f, my_stateful(iterator.iter))
+my_stateful(iterator) = 
+    Stateful(iterator)
 
 """
     skip(iterator, state, ahead)
@@ -95,6 +74,13 @@ end
 
 function attach_state!(a_map::Generator, item_state)
     attach_state!(a_map.iter, item_state)
+    nothing
+end
+
+function detach_state(repeated::Repeated)
+    repeated, nothing
+end
+function attach_state!(::Repeated, ::Nothing)
     nothing
 end
 
@@ -143,7 +129,13 @@ IteratorEltype(::Type{<:Laggy{Iterator}}) where {Iterator} = IteratorEltype(Iter
 
 eltype(::Type{<:Laggy{Iterator}}) where {Iterator} = eltype(Iterator)
 
-function iterate(laggy::Laggy, (last_item, state) = iterate(laggy.iterator))
+function iterate(laggy::Laggy)
+    iterate(laggy, iterate(laggy.iterator))
+end
+function iterate(::Laggy, ::Nothing)
+    nothing
+end
+function iterate(laggy::Laggy, (last_item, state))
     last_item, iterate(laggy.iterator, state)
 end
 
@@ -164,34 +156,12 @@ function preview(laggy::Laggy, (last_item, state), ahead)
     preview(laggy.iterator, state, ahead - 1)
 end
 
-mutable struct InfiniteStateful{Iterator, Item, State}
-    iterator::Iterator
-    item::Item
-    state::State
+function detach_state(stateful::Stateful)
+    Laggy(stateful.itr), stateful.nextvalstate
 end
 
-IteratorSize(::Type{<:InfiniteStateful}) = IsInfinite()
-
-IteratorEltype(::Type{<:InfiniteStateful}) = HasEltype()
-
-eltype(::Type{<:InfiniteStateful{<:Any, Item, <:Any}}) where {Item} = Item
-
-function InfiniteStateful(iterator)
-    InfiniteStateful(iterator, iterate(iterator)...)
-end
-
-function iterate(stateful::InfiniteStateful, state = nothing)
-    last_item = stateful.item
-    stateful.item, stateful.state = iterate(stateful.iterator, stateful.state)
-    last_item, nothing
-end
-
-function detach_state(stateful::InfiniteStateful)
-    Laggy(stateful.iterator), (stateful.item, stateful.state)
-end
-
-function attach_state!(stateful::InfiniteStateful, item_state)
-    stateful.item, stateful.state = item_state
+function attach_state!(stateful::Stateful, item_state)
+    stateful.nextvalstate = item_state
     nothing
 end
 
@@ -220,7 +190,7 @@ export SawTooth
 function (saw::SawTooth{overtones})(an_angle) where {overtones}
     sum(ntuple(let an_angle = an_angle
         function (overtone)
-            sin(overtone * an_angle) / overtone
+            sin_fast(overtone * an_angle) / overtone
         end
     end, overtones))
 end
@@ -297,18 +267,35 @@ struct Splat{AFunction}
 end
 (splat::Splat)(arguments) = splat.a_function(arguments...)
 
-identity(::typeof(*), iterator::Repeated) = iterator.x ≈ 1
-identity(_, __) = false
+repeated_0(iterator::Repeated) = iterator.x + 1 ≈ 1
+repeated_0(_) = false
+
+repeated_1(iterator::Repeated) = iterator.x ≈ 1
+repeated_1(_) = false
 
 function map_iterator(a_function, iterators...)
-    useful = filter(
-        iterator -> !identity(a_function, iterator),
-        iterators
-    )
-    if length(useful) == 0
-        repeated(1)
+    Generator(a_function, iterators...)
+end
+function map_iterator(::typeof(+), iterators...)
+    useful = filter(!repeated_0, iterators)
+    useful_length = length(useful)
+    if useful_length == 0
+        Repeated(0)
+    elseif useful_length == 1
+        useful[1]
     else
-        Generator(Splat(a_function), zip(useful...))
+        Generator(+, iterators...)
+    end
+end
+function map_iterator(::typeof(*), iterators...)
+    useful = filter(!repeated_1, iterators)
+    useful_length = length(useful)
+    if useful_length == 0
+        Repeated(1)
+    elseif useful_length == 1
+        useful[1]
+    else
+        Generator(*, iterators...)
     end
 end
 
@@ -558,33 +545,23 @@ function segments(hook::Hook, start_level, duration, end_level)
 end
 
 mutable struct AudioSchedule{Iterator} <: SampleSource
-    statefuls_samples::Vector{Tuple{Iterator, Int}}
+    channel::Channel{Tuple{Iterator, Int}}
     sample_rate::FREQUENCY
-    first_item_states::Vector{Any}
-    outer_state::Int
-    stateful::Iterator
+    stateful::Union{Iterator, Nothing}
     has_left::Int
-    AudioSchedule{Iterator}(statefuls_samples, sample_rate, first_item_states) where {Iterator} = 
-        new{Iterator}(statefuls_samples, sample_rate, first_item_states)
 end
 
 export AudioSchedule
 
-function AudioSchedule(
-    statefuls_samples::Vector{Tuple{Iterator, Int}},
-    sample_rate,
-) where {Iterator}
-    first_item_states = Vector{Any}(undef, length(statefuls_samples))
-    map!(
-        function ((stateful, samples),)
-            detach_state(stateful)[2]
-        end,
-        first_item_states,
-        statefuls_samples
-    )
-    result = AudioSchedule{Iterator}(statefuls_samples, sample_rate, first_item_states)
-    replace_iterator!(result, iterate(statefuls_samples))
-    result
+AudioSchedule(channel::Channel{Tuple{Iterator, Int}}, sample_rate, stateful, has_left) where {Iterator} = 
+    AudioSchedule{Iterator}(channel, sample_rate, stateful, has_left)
+
+function AudioSchedule(channel, sample_rate)
+    if isopen(channel) || isready(channel)
+        AudioSchedule(channel, sample_rate, take!(channel)...)
+    else
+        AudioSchedule(channel, sample_rate, nothing, 0)
+    end
 end
 
 eltype(::AudioSchedule) = Float64
@@ -593,17 +570,8 @@ nchannels(source::AudioSchedule) = 1
 
 samplerate(source::AudioSchedule) = source.sample_rate / Hz
 
-function show(io::IO, a_schedule::AudioSchedule)
+function show(io::IO, ::AudioSchedule)
     print(io, "AudioSchedule")
-end
-
-function length(source::AudioSchedule)
-    statefuls_samples = source.statefuls_samples
-    if length(statefuls_samples) == 0
-        0
-    else
-        sum((samples for (_, samples) in statefuls_samples))
-    end
 end
 
 @noinline function update_peak(stateful, samples, peak)
@@ -613,70 +581,6 @@ end
         peak = max(peak, abs(item))
     end
     peak
-end
-
-"""
-    seek_peek(a_schedule::AudioSchedule)
-
-Find the maximum absolute amplitude in an AudioSchedule.
-
-```jldoctest
-julia> using AudioSchedules
-
-
-julia> using Unitful: Hz, s
-
-
-julia> plan = Plan(44100Hz)
-Plan with triggers at ()
-
-julia> add!(plan, Map(sin, Cycles(440Hz)), 0s, 0, Line => 1s, 1, Line => 1s, 0)
-
-
-julia> seek_peak(AudioSchedule(plan))
-0.9994267666261519
-```
-"""
-function seek_peak(a_schedule::AudioSchedule)
-    peak = 0
-    for (stateful, samples) in a_schedule.statefuls_samples
-        peak = update_peak(stateful, samples, peak)
-    end
-    peak
-end
-export seek_peak
-
-@noinline function replace_iterator!(source, ::Nothing)
-    foreach(
-        function ((stateful, samples), item_state)
-            attach_state!(stateful, item_state)
-        end,
-        source.statefuls_samples,
-        source.first_item_states
-    )
-    nothing
-end
-
-@noinline function replace_iterator!(source, stateful_samples_state)
-    (stateful, source.has_left), source.outer_state = stateful_samples_state
-    source.stateful = stateful
-    nothing
-end
-
-function next_iterator!(source, stateful_samples_state::Nothing, _, __, ___, until)
-    replace_iterator!(source, stateful_samples_state)
-    until
-end
-function next_iterator!(
-    source,
-    stateful_samples_state,
-    buf,
-    frameoffset,
-    framecount,
-    until,
-)
-    replace_iterator!(source, stateful_samples_state)
-    unsafe_read!(source, buf, frameoffset, framecount, until + 1)
 end
 
 @noinline function inner_fill!(stateful, buf, a_range)
@@ -690,28 +594,25 @@ end
 end
 
 function unsafe_read!(source::AudioSchedule, buf, frameoffset, framecount, from = 1)
-    if isdefined(source, :stateful)
-        has_left = source.has_left
-        stateful = source.stateful
-        empties = framecount - from + 1
-        if (has_left > empties)
-            source.has_left = has_left - empties
-            inner_fill!(stateful, buf, from:framecount)
-            framecount
-        else
-            until = from + has_left - 1
-            inner_fill!(stateful, buf, from:until)
-            next_iterator!(
-                source,
-                iterate(source.statefuls_samples, source.outer_state),
-                buf,
-                frameoffset,
-                framecount,
-                until,
-            )
-        end
+    has_left = source.has_left
+    stateful = source.stateful
+    empties = framecount - from + 1
+    if empties < has_left
+        source.has_left = has_left - empties
+        inner_fill!(stateful, buf, from:framecount)
+        framecount
     else
-        0
+        until = from + has_left - 1
+        if has_left > 0
+            inner_fill!(stateful, buf, from:until)
+        end
+        channel = source.channel
+        if isopen(channel) || isready(channel)
+            source.stateful, source.has_left = take!(channel)
+            unsafe_read!(source, buf, frameoffset, framecount, until + 1)
+        else
+            until
+        end
     end
 end
 
@@ -738,6 +639,15 @@ struct Plan
     triggers::TRIGGERS
 end
 
+function duration(plan::Plan)
+    triggers = plan.triggers
+    if length(triggers) > 0
+        last(triggers)[1] - first(triggers)[1]
+    else
+        0.0s
+    end
+end
+
 export Plan
 
 function show(io::IO, plan::Plan)
@@ -750,7 +660,7 @@ function make_envelope(start_level, (shape, duration), end_level, more_segments.
     segments(shape, start_level, duration, end_level)...,
     make_envelope(end_level, more_segments...)...
 end
-function make_envelope(end_level)
+function make_envelope(_)
     ()
 end
 
@@ -778,7 +688,7 @@ end
 """
     add!(plan::Plan, synthesizer, start_time)
 
-Add a synthesizer to the plan, where `synthesizer` must support [`make_iterator`](@ref) and [`get_duration`](@ref).
+Add a synthesizer to the plan, where `synthesizer` must support [`make_iterator`](@ref) and [`duration`](@ref).
 
 ```jldoctest
 julia> using AudioSchedules
@@ -800,23 +710,23 @@ Plan with triggers at ()
 julia> add!(plan, load("clunk.wav"), 0s)
 
 julia> plan
-Plan with triggers at (0.0 s, 0.351859410430839 s)
+Plan with triggers at (0.0 s, 0.3518820861678005 s)
 
 julia> a_schedule = AudioSchedule(plan)
 AudioSchedule
 
-julia> read(a_schedule, length(a_schedule))
-15517-frame, 1-channel SampleBuf{Float64, 2}
-0.351859410430839s sampled at 44100.0Hz
+julia> read(a_schedule, duration(plan))
+15518-frame, 1-channel SampleBuf{Float64, 2}
+0.3518820861678005s sampled at 44100.0Hz
 ▇▇▇▇▇▇▇▆▆▆▆▅▅▅▅▅▅▅▅▅▅▅▅▅▅▄▅▅▄▄▅▄▄▄▄▄▄▄▄▄▄▄▃▄▄▄▃▄▄▃▄▄▄▃▃▃▃▃▃▃▃▃▃▃▃▃▃▃▃▃▂▃▃▃▂▃▃▂▂▂
 ```
 """
 function add!(plan, synthesizer, start_time)
     add_iterator!(
         plan,
-        InfiniteStateful(make_iterator(synthesizer, plan.sample_rate)),
+        my_stateful(make_iterator(synthesizer, plan.sample_rate)),
         start_time,
-        get_duration(synthesizer),
+        duration(synthesizer),
     )
 end
 
@@ -863,27 +773,26 @@ julia> add!(plan, Map(sin, Cycles(440Hz)), 0s, 0, Line => 1s, 1, Line => 1s, 0)
 julia> plan
 Plan with triggers at (0.0 s, 1.0 s, 2.0 s)
 
-julia> empty_plan = AudioSchedule(Plan(44100Hz))
-AudioSchedule
+julia> empty_plan = Plan(44100Hz)
+Plan with triggers at ()
 
-julia> read(empty_plan, length(empty_plan))
+julia> read(AudioSchedule(empty_plan), duration(empty_plan))
 0-frame, 1-channel SampleBuf{Float64, 2}
 0.0s sampled at 44100.0Hz
-
 ```
 """
 function add!(plan::Plan, synthesizer, start_time, piece_1, rest...)
     sample_rate = plan.sample_rate
     triggers = plan.triggers
     orchestra = plan.orchestra
-    stateful_wave = InfiniteStateful(make_iterator(synthesizer, sample_rate))
+    stateful_wave = my_stateful(make_iterator(synthesizer, sample_rate))
     for (shape_synthesizer, duration) in make_envelope(piece_1, rest...)
         add_iterator!(
             plan,
             map_iterator(
                 *,
                 stateful_wave,
-                InfiniteStateful(make_iterator(shape_synthesizer, sample_rate)),
+                my_stateful(make_iterator(shape_synthesizer, sample_rate)),
             ),
             start_time,
             duration,
@@ -896,8 +805,6 @@ end
 export add!
 
 # TODO: reset!
-
-const SUM_OF = Generator{<:Zip{<:Tuple}, Splat{typeof(+)}}
 
 """
     AudioSchedule(plan::Plan)
@@ -921,17 +828,17 @@ julia> a_schedule = AudioSchedule(plan)
 AudioSchedule
 ```
 
-You can find the number of samples in an `AudioSchedule` with length.
+You can find get the duration of the `Plan` corresponding to an `AudioSchedule`.
 
 ```jldoctest audio_schedule
-julia> the_length = length(a_schedule)
-132300
+julia> the_duration = duration(plan)
+3.0 s
 ```
 
 You can use the schedule as a source for samples.
 
 ```jldoctest audio_schedule
-julia> read(a_schedule, the_length)
+julia> read(a_schedule, the_duration)
 132300-frame, 1-channel SampleBuf{Float64, 2}
 3.0s sampled at 44100.0Hz
 ▄▅▅▆▆▆▆▆▆▇▇▇▇▇▇▇▇▇▇▇▇▇▇▇▇▇▇▇▇▇▇▇▇▇▇▇▇▇▇▇▇▇▇▇▇▇▇▇▇▇▇▇▇▇▇▇▇▇▇▇▇▇▇▇▇▇▇▇▇▇▇▆▆▆▆▆▆▅▅▄
@@ -941,7 +848,7 @@ function AudioSchedule(plan::Plan)
     triggers = plan.triggers
     orchestra = plan.orchestra
     sample_rate = plan.sample_rate
-    statefuls_samples = Tuple{SUM_OF, Int}[]
+    channel = Channel{Tuple{Any, Int}}(length(triggers))
     time = 0.0s
     for (trigger_time, trigger_list) in pairs(triggers)
         samples = round(Int, (trigger_time - time) * sample_rate)
@@ -952,11 +859,14 @@ function AudioSchedule(plan::Plan)
             orchestra[label] = iterator, is_on
         end
         if length(iterators) > 0 && samples > 0
-            push!(statefuls_samples, (map_iterator(+, iterators...), samples))
+            put!(channel, (map_iterator(+, iterators...), samples))
         end
     end
-    AudioSchedule(statefuls_samples, sample_rate)
+    close(channel)
+    AudioSchedule(channel, sample_rate)
 end
+
+# TODO: figure out a way to avoid peaking !!!
 
 """
     function Scale(ratio)
@@ -978,52 +888,6 @@ end
 (scale::Scale)(thing) = thing * scale.ratio
 
 export Scale
-
-"""
-    map(a_function, schedule::AudioSchedule)
-
-Map a function over all of the synthesizers in the schedule.
-
-```jldoctest
-julia> using AudioSchedules
-
-
-julia> using Unitful: Hz, s
-
-
-julia> plan = Plan(44100Hz)
-Plan with triggers at ()
-
-julia> add!(plan, Map(sin, Cycles(440Hz)), 0s, 0, Line => 1s, 1, Line => 1s, 0)
-
-
-julia> a_schedule = AudioSchedule(plan)
-AudioSchedule
-
-julia> seek_peak(map(Scale(2), a_schedule))
-1.9988535332523039
-```
-"""
-function map(
-    a_function::AFunction,
-    schedule::AudioSchedule{Iterator},
-) where {AFunction, Iterator}
-    mapped = Vector{Tuple{Generator{<:Iterator, AFunction}, Int}}(
-        undef,
-        length(schedule.statefuls_samples),
-    )
-    map!(
-        let a_function = a_function
-            function ((iterator, samples),)
-                Generator(a_function, iterator), samples
-            end
-        end,
-        mapped,
-        schedule.statefuls_samples,
-    )
-    AudioSchedule(mapped, schedule.sample_rate)
-end
-export within
 
 const DIGITS = of(:maybe, raw("-")), of(:some, short(:digit))
 const QUOTIENT = pattern(
@@ -1080,6 +944,37 @@ macro q_str(interval_string::AbstractString)
     esc(q_str(interval_string))
 end
 export @q_str
+
+"""
+    duration(synthesizer)
+
+Get the duration of a synthesizer (with units of time, like `s`), for synthesizers with an
+inherent length.
+
+```jldoctest
+julia> using AudioSchedules
+
+
+julia> using FileIO: load
+
+
+julia> using LibSndFile: LibSndFile
+
+
+julia> using Unitful: Hz
+
+
+julia> cd(joinpath(pkgdir(AudioSchedules), "test"))
+
+
+julia> duration(load("clunk.wav"))
+0.3518820861678005 s
+```
+"""
+function duration(buffer::SampleBuf)
+    (length(buffer) / samplerate(buffer))s
+end
+export duration
 
 include("equal_loudness.jl")
 
