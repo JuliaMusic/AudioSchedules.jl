@@ -31,11 +31,11 @@ const FREQUENCY = typeof(1.0Hz)
 const TRIGGERS = SortedDict{TIME, Vector{Tuple{Symbol, Bool}}}
 const ORCHESTRA = Dict{Symbol, Tuple{Any, Bool}}
 
-my_stateful(repeated::Repeated) = 
+stateful(repeated::Repeated) = 
     repeated
-my_stateful(iterator::Generator) = 
-    Generator(iterator.f, my_stateful(iterator.iter))
-my_stateful(iterator) = 
+stateful(iterator::Generator) = 
+    Generator(iterator.f, stateful(iterator.iter))
+stateful(iterator) = 
     Stateful(iterator)
 
 """
@@ -724,7 +724,7 @@ julia> read(a_schedule, duration(plan))
 function add!(plan, synthesizer, start_time)
     add_iterator!(
         plan,
-        my_stateful(make_iterator(synthesizer, plan.sample_rate)),
+        stateful(make_iterator(synthesizer, plan.sample_rate)),
         start_time,
         duration(synthesizer),
     )
@@ -785,14 +785,14 @@ function add!(plan::Plan, synthesizer, start_time, piece_1, rest...)
     sample_rate = plan.sample_rate
     triggers = plan.triggers
     orchestra = plan.orchestra
-    stateful_wave = my_stateful(make_iterator(synthesizer, sample_rate))
+    stateful_wave = stateful(make_iterator(synthesizer, sample_rate))
     for (shape_synthesizer, duration) in make_envelope(piece_1, rest...)
         add_iterator!(
             plan,
             map_iterator(
                 *,
                 stateful_wave,
-                my_stateful(make_iterator(shape_synthesizer, sample_rate)),
+                stateful(make_iterator(shape_synthesizer, sample_rate)),
             ),
             start_time,
             duration,
