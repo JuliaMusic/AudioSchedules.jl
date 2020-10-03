@@ -167,6 +167,8 @@ end
 
 struct SawTooth{overtones} end
 
+const ADJUST = 2 / pi
+
 """
     SawTooth(overtones)
 
@@ -180,7 +182,7 @@ julia> using AudioSchedules
 
 
 julia> SawTooth(3)(π / 4)
-1.4428090415820634
+0.9185207636218614
 ```
 """
 SawTooth(overtones) = SawTooth{overtones}()
@@ -188,7 +190,7 @@ SawTooth(overtones) = SawTooth{overtones}()
 export SawTooth
 
 function (saw::SawTooth{overtones})(an_angle) where {overtones}
-    sum(ntuple(let an_angle = an_angle
+    ADJUST * sum(ntuple(let an_angle = an_angle
         function (overtone)
             sin_fast(overtone * an_angle) / overtone
         end
