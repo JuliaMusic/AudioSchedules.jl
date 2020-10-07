@@ -1,5 +1,7 @@
 module AudioSchedules
 
+# TODO: try out FFTW
+
 import Base:
     eltype,
     extrema,
@@ -687,6 +689,27 @@ function add_iterator!(plan::Plan, iterator, start_time, duration)
     nothing
 end
 
+function triples(sample_rate, synthesizer, start_time, envelope...)
+    time_box = Ref(start_time * 1.0)
+    stateful_wave = stateful(make_iterator(synthesizer, sample_rate))
+    map(
+        function ((shape_synthesizer, duration),)
+            time = time_box[]
+            time_box[] = time + duration
+            (
+                map_iterator(
+                    *,
+                    stateful_wave,
+                    stateful(make_iterator(shape_synthesizer, sample_rate)),
+                ),
+                time,
+                duration
+            )
+        end,
+        make_envelope(envelope...)
+    )
+end
+
 """
     add!(plan::Plan, synthesizer, start_time)
 
@@ -788,18 +811,8 @@ function add!(plan::Plan, synthesizer, start_time, piece_1, rest...)
     triggers = plan.triggers
     orchestra = plan.orchestra
     stateful_wave = stateful(make_iterator(synthesizer, sample_rate))
-    for (shape_synthesizer, duration) in make_envelope(piece_1, rest...)
-        add_iterator!(
-            plan,
-            map_iterator(
-                *,
-                stateful_wave,
-                stateful(make_iterator(shape_synthesizer, sample_rate)),
-            ),
-            start_time,
-            duration,
-        )
-        start_time = start_time + duration
+    for (shaped, time, duration) in triples(sample_rate, synthesizer, start_time, piece_1, rest...)
+        add_iterator!(plan, shaped, time, duration)
     end
     nothing
 end
