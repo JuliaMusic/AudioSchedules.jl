@@ -561,10 +561,14 @@ AudioSchedule(channel::Channel{Tuple{Iterator, Int}}, sample_rate, stateful, has
     AudioSchedule{Iterator}(channel, sample_rate, stateful, has_left)
 
 function AudioSchedule(channel, sample_rate)
-    if isopen(channel) || isready(channel)
+    try
         AudioSchedule(channel, sample_rate, take!(channel)...)
-    else
-        AudioSchedule(channel, sample_rate, nothing, 0)
+    catch error
+        if error isa InvalidStateException
+            AudioSchedule(channel, sample_rate, nothing, 0)
+        else
+            rethrow(error)
+        end
     end
 end
 
@@ -611,11 +615,15 @@ function unsafe_read!(source::AudioSchedule, buf, frameoffset, framecount, from 
             inner_fill!(stateful, buf, from:until)
         end
         channel = source.channel
-        if isopen(channel) || isready(channel)
+        try
             source.stateful, source.has_left = take!(channel)
             unsafe_read!(source, buf, frameoffset, framecount, until + 1)
-        else
-            until
+        catch error
+            if error isa InvalidStateException
+                until
+            else
+                rethrow(error)
+            end
         end
     end
 end
@@ -860,10 +868,17 @@ julia> read(a_schedule, the_duration)
 ```
 """
 function AudioSchedule(plan::Plan)
+    released = Channel{Nothing}(0)
+    channel = Channel{Tuple{Any, Int}}(0) do channel
+        feed!(channel, plan, released)
+    end
+    AudioSchedule(channel, plan.sample_rate)
+end
+
+function feed!(channel, plan, released)
     triggers = plan.triggers
     orchestra = plan.orchestra
     sample_rate = plan.sample_rate
-    channel = Channel{Tuple{Any, Int}}(length(triggers))
     time = 0.0s
     for (trigger_time, trigger_list) in pairs(triggers)
         samples = round(Int, (trigger_time - time) * sample_rate)
@@ -873,12 +888,14 @@ function AudioSchedule(plan::Plan)
             iterator, _ = orchestra[label]
             orchestra[label] = iterator, is_on
         end
-        if length(iterators) > 0 && samples > 0
-            put!(channel, (map_iterator(+, iterators...), samples))
+        if !isready(released)
+            if length(iterators) > 0 && samples > 0 && 
+                put!(channel, (map_iterator(+, iterators...), samples))
+            end
+        else
+            break
         end
     end
-    close(channel)
-    AudioSchedule(channel, sample_rate)
 end
 
 # TODO: figure out a way to avoid peaking !!!
