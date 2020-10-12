@@ -20,6 +20,7 @@ using Base.Meta: ParseError
 using DataStructures: SortedDict
 using Interpolations: CubicSplineInterpolation
 using NLsolve: nlsolve
+using OrderedCollections: LittleDict
 using RegularExpressions: capture, CONSTANTS, of, pattern, raw, short
 import SampledSignals: samplerate, nchannels, unsafe_read!
 using SampledSignals: SampleSource, SampleBuf
@@ -30,15 +31,13 @@ const TAU = 2 * pi
 const TIME = typeof(1.0s)
 const RATE = typeof(1.0 / s)
 const FREQUENCY = typeof(1.0Hz)
-const TRIGGERS = SortedDict{TIME, Vector{Tuple{Symbol, Bool}}}
-const ORCHESTRA = Dict{Symbol, Tuple{Any, Bool}}
+const TRIGGERS = SortedDict{TIME, Vector{Tuple{Int, Bool}}}
+const ORCHESTRA = Vector{Any}
+const ACTIVATED = Vector{Bool}
 
-stateful(repeated::Repeated) = 
-    repeated
-stateful(iterator::Generator) = 
-    Generator(iterator.f, stateful(iterator.iter))
-stateful(iterator) = 
-    Stateful(iterator)
+stateful(repeated::Repeated) = repeated
+stateful(iterator::Generator) = Generator(iterator.f, stateful(iterator.iter))
+stateful(iterator) = Stateful(iterator)
 
 """
     skip(iterator, state, ahead)
@@ -196,7 +195,7 @@ function (saw::SawTooth{overtones})(an_angle) where {overtones}
         function (overtone)
             sin_fast(overtone * an_angle) / overtone
         end
-    end, overtones))
+    end, Val{overtones}()))
 end
 
 """
@@ -205,7 +204,7 @@ end
 Return an iterator that will the play the `synthesizer` at `sample_rate` (with frequency
 units, like `Hz`). The iterator should yield ratios between -1 and 1. Assumes that iterators
 will never end while they are scheduled. In addition to supporting `iterate`, iterators should
-also support [`AudioSchedules.preview`](@ref) and [`AudioSchedules.skip`](@ref), and iteration 
+also support [`AudioSchedules.preview`](@ref) and [`AudioSchedules.skip`](@ref), and iteration
 should have no side effects.
 
 ```jldoctest
@@ -271,40 +270,8 @@ struct Splat{AFunction}
 end
 (splat::Splat)(arguments) = splat.a_function(arguments...)
 
-repeated_0(iterator::Repeated) = iterator.x + 1 ≈ 1
-repeated_0(_) = false
-
-repeated_1(iterator::Repeated) = iterator.x ≈ 1
-repeated_1(_) = false
-
-function map_iterator(a_function, iterators...)
-    Generator(a_function, iterators...)
-end
-function map_iterator(::typeof(+), iterators...)
-    useful = filter(!repeated_0, iterators)
-    useful_length = length(useful)
-    if useful_length == 0
-        Repeated(0)
-    elseif useful_length == 1
-        useful[1]
-    else
-        Generator(+, iterators...)
-    end
-end
-function map_iterator(::typeof(*), iterators...)
-    useful = filter(!repeated_1, iterators)
-    useful_length = length(useful)
-    if useful_length == 0
-        Repeated(1)
-    elseif useful_length == 1
-        useful[1]
-    else
-        Generator(*, iterators...)
-    end
-end
-
 function make_iterator(a_map::Map, sample_rate)
-    map_iterator(
+    Generator(
         a_map.a_function,
         map(let sample_rate = sample_rate
             function (synthesizer)
@@ -508,6 +475,7 @@ Plan with triggers at ()
 
 julia> add!(plan, Map(sin, Cycles(440Hz)), 0s, 1, Hook(1 / s, 1 / s) => 2s, ℯ + 1)
 
+
 julia> add!(plan, Map(sin, Cycles(440Hz)), 0s, 1, Hook(1 / s, 1 / s) => 2s, 0)
 ERROR: Unsolvable hook
 [...]
@@ -558,21 +526,26 @@ end
 
 export AudioSchedule
 
-AudioSchedule(outer_iterator::OuterIterator, sample_rate, outer_state, stateful, has_left) where {OuterIterator} = 
+function AudioSchedule(
+    outer_iterator::OuterIterator,
+    sample_rate,
+    outer_state,
+    stateful,
+    has_left,
+) where {OuterIterator}
     AudioSchedule{OuterIterator}(outer_iterator, sample_rate, outer_state, stateful, has_left)
+end
 
 function rearrange(((stateful, has_left), outer_state),)
     outer_state, stateful, has_left
 end
 function AudioSchedule(outer_iterator, sample_rate)
     result = iterate(outer_iterator)
-    AudioSchedule(outer_iterator, sample_rate, 
-        if result === nothing
-            (nothing, nothing, 0)
-        else
-            rearrange(result)
-        end...
-    )
+    AudioSchedule(outer_iterator, sample_rate, if result === nothing
+        (nothing, nothing, 0)
+    else
+        rearrange(result)
+    end...)
 end
 
 eltype(::AudioSchedule) = Float64
@@ -647,6 +620,7 @@ Plan with triggers at ()
 struct Plan
     sample_rate::RATE
     orchestra::ORCHESTRA
+    activated::ACTIVATED
     triggers::TRIGGERS
 end
 
@@ -665,7 +639,7 @@ function show(io::IO, plan::Plan)
     print(io, "Plan with triggers at $((keys(plan.triggers)...,))")
 end
 
-Plan(sample_rate) = Plan(sample_rate, ORCHESTRA(), TRIGGERS())
+Plan(sample_rate) = Plan(sample_rate, ORCHESTRA(), ACTIVATED(), TRIGGERS())
 
 function make_envelope(start_level, (shape, duration), end_level, more_segments...)
     segments(shape, start_level, duration, end_level)...,
@@ -676,18 +650,19 @@ function make_envelope(_)
 end
 
 function add_iterator!(plan::Plan, iterator, start_time, duration)
-    stop_time = start_time + duration
-    label = gensym("segment")
-    orchestra = plan.orchestra
     triggers = plan.triggers
-    orchestra[label] = iterator, false
-    start_trigger = label, true
+    orchestra = plan.orchestra
+    push!(orchestra, iterator)
+    push!(plan.activated, false)
+    index = length(plan.orchestra)
+    start_trigger = index, true
     if haskey(triggers, start_time)
         push!(triggers[start_time], start_trigger)
     else
         triggers[start_time] = [start_trigger]
     end
-    stop_trigger = label, false
+    stop_time = start_time + duration
+    stop_trigger = index, false
     if haskey(triggers, stop_time)
         push!(triggers[stop_time], stop_trigger)
     else
@@ -704,16 +679,16 @@ function triples(sample_rate, synthesizer, start_time, envelope...)
             time = time_box[]
             time_box[] = time + duration
             (
-                map_iterator(
+                Generator(
                     *,
                     stateful_wave,
                     stateful(make_iterator(shape_synthesizer, sample_rate)),
                 ),
                 time,
-                duration
+                duration,
             )
         end,
-        make_envelope(envelope...)
+        make_envelope(envelope...),
     )
 end
 
@@ -731,15 +706,18 @@ julia> using FileIO: load
 
 julia> using LibSndFile: LibSndFile
 
+
 julia> using Unitful: Hz, s
 
 
 julia> cd(joinpath(pkgdir(AudioSchedules), "test"))
 
+
 julia> plan = Plan(44100Hz)
 Plan with triggers at ()
 
 julia> add!(plan, load("clunk.wav"), 0s)
+
 
 julia> plan
 Plan with triggers at (0.0 s, 0.3518820861678005 s)
@@ -815,10 +793,9 @@ julia> read(AudioSchedule(empty_plan), duration(empty_plan))
 """
 function add!(plan::Plan, synthesizer, start_time, piece_1, rest...)
     sample_rate = plan.sample_rate
-    triggers = plan.triggers
-    orchestra = plan.orchestra
     stateful_wave = stateful(make_iterator(synthesizer, sample_rate))
-    for (shaped, time, duration) in triples(sample_rate, synthesizer, start_time, piece_1, rest...)
+    for (shaped, time, duration) in
+        triples(sample_rate, synthesizer, start_time, piece_1, rest...)
         add_iterator!(plan, shaped, time, duration)
     end
     nothing
@@ -830,10 +807,10 @@ length(plan::Plan) = length(plan.triggers)
 
 function iterate(plan::Plan)
     inner_iterate(plan, 0.0s, iterate(pairs(plan.triggers)))
-   
+
 end
 
-function iterate(plan::Plan, ::Nothing)
+function iterate(::Plan, ::Nothing)
     nothing
 end
 function iterate(plan::Plan, (trigger_state, time))
@@ -845,13 +822,22 @@ function inner_iterate(plan, time, trigger_group)
         nothing
     else
         orchestra = plan.orchestra
+        activated = plan.activated
         (trigger_time, trigger_list), trigger_state = trigger_group
-        summed = map_iterator(+, (iterator for (iterator, is_on) in values(orchestra) if is_on)...)
-        for (label, is_on) in trigger_list
-            iterator, _ = orchestra[label]
-            orchestra[label] = iterator, is_on
+        summed = 
+            if !any(activated)
+                repeated(0)
+            else
+                Generator(
+                    +,
+                    view(orchestra, activated)...
+                )
+            end
+        for (index, is_on) in trigger_list
+            activated[index] = is_on
         end
-        (summed, round(Int, (trigger_time - time) * plan.sample_rate)), (trigger_state, trigger_time)
+        (summed, round(Int, (trigger_time - time) * plan.sample_rate)),
+        (trigger_state, trigger_time)
     end
 end
 
@@ -939,8 +925,8 @@ function q_str(interval_string)
     if a_match === nothing
         throw(Meta.ParseError("Can't parse interval $interval_string"))
     end
-    get_parse(a_match["numerator"], 1) // get_parse(a_match["denominator"], 1) *
-    (2 // 1)^get_parse(a_match["octave"], 0)
+    get_parse(a_match["numerator"], 1)//get_parse(a_match["denominator"], 1) *
+    (2//1)^get_parse(a_match["octave"], 0)
 end
 
 """
