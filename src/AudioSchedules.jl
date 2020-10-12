@@ -17,7 +17,7 @@ using Base: Generator, IsInfinite, HasEltype, @kwdef, tail
 using Base.FastMath: sin_fast
 using Base.Iterators: repeated, Stateful, Repeated, Zip
 using Base.Meta: ParseError
-using DataStructures: SortedDict
+using DataStructures: SortedSet
 using Interpolations: CubicSplineInterpolation
 using NLsolve: nlsolve
 using OrderedCollections: LittleDict
@@ -31,7 +31,7 @@ const TAU = 2 * pi
 const TIME = typeof(1.0s)
 const RATE = typeof(1.0 / s)
 const FREQUENCY = typeof(1.0Hz)
-const TRIGGERS = SortedDict{TIME, Vector{Tuple{Int, Bool}}}
+const TRIGGERS = SortedSet{Tuple{TIME, Int}}
 const ORCHESTRA = Vector{Any}
 const ACTIVATED = Vector{Bool}
 
@@ -470,8 +470,8 @@ julia> using AudioSchedules
 julia> using Unitful: Hz, s
 
 
-julia> plan = Plan(44100Hz)
-Plan with triggers at ()
+julia> plan = Plan(44100Hz);
+
 
 julia> add!(plan, Map(sin, Cycles(440Hz)), 0s, 1, Hook(1 / s, 1 / s) => 2s, ℯ + 1)
 
@@ -533,7 +533,13 @@ function AudioSchedule(
     stateful,
     has_left,
 ) where {OuterIterator}
-    AudioSchedule{OuterIterator}(outer_iterator, sample_rate, outer_state, stateful, has_left)
+    AudioSchedule{OuterIterator}(
+        outer_iterator,
+        sample_rate,
+        outer_state,
+        stateful,
+        has_left,
+    )
 end
 
 function rearrange(((stateful, has_left), outer_state),)
@@ -613,8 +619,8 @@ julia> using AudioSchedules
 julia> using Unitful: Hz
 
 
-julia> Plan(44100Hz)
-Plan with triggers at ()
+julia> Plan(44100Hz);
+
 ```
 """
 struct Plan
@@ -635,10 +641,6 @@ end
 
 export Plan
 
-function show(io::IO, plan::Plan)
-    print(io, "Plan with triggers at $((keys(plan.triggers)...,))")
-end
-
 Plan(sample_rate) = Plan(sample_rate, ORCHESTRA(), ACTIVATED(), TRIGGERS())
 
 function make_envelope(start_level, (shape, duration), end_level, more_segments...)
@@ -655,19 +657,8 @@ function add_iterator!(plan::Plan, iterator, start_time, duration)
     push!(orchestra, iterator)
     push!(plan.activated, false)
     index = length(plan.orchestra)
-    start_trigger = index, true
-    if haskey(triggers, start_time)
-        push!(triggers[start_time], start_trigger)
-    else
-        triggers[start_time] = [start_trigger]
-    end
-    stop_time = start_time + duration
-    stop_trigger = index, false
-    if haskey(triggers, stop_time)
-        push!(triggers[stop_time], stop_trigger)
-    else
-        triggers[stop_time] = [stop_trigger]
-    end
+    push!(triggers, (start_time, index))
+    push!(triggers, (start_time + duration, index))
     nothing
 end
 
@@ -713,14 +704,11 @@ julia> using Unitful: Hz, s
 julia> cd(joinpath(pkgdir(AudioSchedules), "test"))
 
 
-julia> plan = Plan(44100Hz)
-Plan with triggers at ()
+julia> plan = Plan(44100Hz);
+
 
 julia> add!(plan, load("clunk.wav"), 0s)
 
-
-julia> plan
-Plan with triggers at (0.0 s, 0.3518820861678005 s)
 
 julia> a_schedule = AudioSchedule(plan)
 AudioSchedule
@@ -774,17 +762,14 @@ julia> using AudioSchedules
 julia> using Unitful: Hz, s
 
 
-julia> plan = Plan(44100Hz)
-Plan with triggers at ()
+julia> plan = Plan(44100Hz);
+
 
 julia> add!(plan, Map(sin, Cycles(440Hz)), 0s, 0, Line => 1s, 1, Line => 1s, 0)
 
 
-julia> plan
-Plan with triggers at (0.0 s, 1.0 s, 2.0 s)
+julia> empty_plan = Plan(44100Hz);
 
-julia> empty_plan = Plan(44100Hz)
-Plan with triggers at ()
 
 julia> read(AudioSchedule(empty_plan), duration(empty_plan))
 0-frame, 1-channel SampleBuf{Float64, 2}
@@ -805,40 +790,38 @@ export add!
 
 length(plan::Plan) = length(plan.triggers)
 
+iterate(::Plan, ::Nothing) = nothing
 function iterate(plan::Plan)
-    inner_iterate(plan, 0.0s, iterate(pairs(plan.triggers)))
-
+    inner_iterate(plan, 0.0s, iterate(plan.triggers))
+end
+function iterate(plan::Plan, (time, index, trigger_state))
+    activated = plan.activated
+    activated[index] = !activated[index]
+    inner_iterate(plan, time, iterate(plan.triggers, trigger_state))
 end
 
-function iterate(::Plan, ::Nothing)
-    nothing
-end
-function iterate(plan::Plan, (trigger_state, time))
-    inner_iterate(plan, time, iterate(pairs(plan.triggers), trigger_state))
-end
-
-function inner_iterate(plan, time, trigger_group)
-    if trigger_group === nothing
-        nothing
-    else
-        orchestra = plan.orchestra
-        activated = plan.activated
-        (trigger_time, trigger_list), trigger_state = trigger_group
-        summed = 
-            if !any(activated)
-                repeated(0)
-            else
-                Generator(
-                    +,
-                    view(orchestra, activated)...
-                )
-            end
-        for (index, is_on) in trigger_list
-            activated[index] = is_on
+inner_iterate(_, __, ::Nothing) = nothing
+function inner_iterate(plan, time, ((trigger_time, index), trigger_state))
+    triggers = plan.triggers
+    activated = plan.activated
+    while time == trigger_time
+        activated[index] = !activated[index]
+        trigger_group = iterate(triggers, trigger_state)
+        if trigger_group === nothing
+            return nothing
+        else
+            (trigger_time, index), trigger_state = trigger_group
         end
-        (summed, round(Int, (trigger_time - time) * plan.sample_rate)),
-        (trigger_state, trigger_time)
     end
+    (
+        if !any(activated)
+            repeated(0.0)
+        else
+            Generator(+, view(plan.orchestra, activated)...)
+        end,
+        round(Int, (trigger_time - time) * plan.sample_rate),
+    ),
+    (trigger_time, index, trigger_state)
 end
 
 # TODO: reset!
@@ -855,8 +838,8 @@ julia> using AudioSchedules
 julia> using Unitful: s, Hz
 
 
-julia> plan = Plan(44100Hz)
-Plan with triggers at ()
+julia> plan = Plan(44100Hz);
+
 
 julia> add!(plan, Map(sin, Cycles(440Hz)), 0s, 0, Line => 1s, 1, Line => 1s, 1, Line => 1s, 0)
 
