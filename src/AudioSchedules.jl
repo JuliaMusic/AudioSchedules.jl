@@ -1,6 +1,7 @@
 module AudioSchedules
 
 # TODO: try out FFTW
+# TODO: seperate out a submodule of things not to compile
 
 import Base:
     eltype,
@@ -790,6 +791,7 @@ export add!
 
 length(plan::Plan) = length(plan.triggers)
 
+# TODO: why is this needed??
 iterate(::Plan, ::Nothing) = nothing
 function iterate(plan::Plan)
     inner_iterate(plan, 0.0s, iterate(plan.triggers))
@@ -908,8 +910,8 @@ function q_str(interval_string)
     if a_match === nothing
         throw(Meta.ParseError("Can't parse interval $interval_string"))
     end
-    get_parse(a_match["numerator"], 1)//get_parse(a_match["denominator"], 1) *
-    (2//1)^get_parse(a_match["octave"], 0)
+    get_parse(a_match["numerator"], 1) // get_parse(a_match["denominator"], 1) *
+    (2 // 1)^get_parse(a_match["octave"], 0)
 end
 
 """

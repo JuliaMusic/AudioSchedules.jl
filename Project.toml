@@ -1,7 +1,7 @@
 name = "AudioSchedules"
 uuid = "0990df78-ca1d-4d03-ab92-318744ee3999"
 authors = ["Brandon Taylor <brandon.taylor221@gmail.com>"]
-version = "0.2.0"
+version = "0.2.1"
 
 [deps]
 DataStructures = "864edb3b-99cc-5e75-8d2d-829cb0a9cfe8"
