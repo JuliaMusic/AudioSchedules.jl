@@ -95,7 +95,7 @@ julia> saved = SampleBuf(new_schedule)
 3.0s sampled at 44100.0Hz
 ▁▂▂▃▃▃▃▃▃▃▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▅▅▅▆▆▆▆▆▆▇▇▇▇▇▇▇▇▇▇▇▇▇▇▇▇▇▇▇▇▇▇▇▇▇▇▇▇▇▇▇▇▇▇▇▇▆▆▆▆▆▆▅▅▄
 
-julia> PortAudioStream(0, 1) do stream
+julia> PortAudioStream(0, 1, warn_xruns = false) do stream
             write(stream, saved)
         end
 132300
