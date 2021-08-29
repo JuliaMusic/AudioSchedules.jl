@@ -10,6 +10,7 @@ jobs:
       matrix:
         version:
           - '1.5'
+          - '1.6'
           - 'nightly'
     steps:
       - uses: actions/checkout@v2
