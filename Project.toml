@@ -1,10 +1,11 @@
 name = "AudioSchedules"
 uuid = "0990df78-ca1d-4d03-ab92-318744ee3999"
 authors = ["Brandon Taylor <brandon.taylor221@gmail.com>"]
-version = "0.3"
+version = "0.4.0"
 
 [deps]
 DataStructures = "864edb3b-99cc-5e75-8d2d-829cb0a9cfe8"
+InfiniteArrays = "4858937d-0d70-526a-a4dd-2d5cb5dd786c"
 Interpolations = "a98d9a8b-a2ab-59e6-89dd-64a1c18fca59"
 NLsolve = "2774e3e8-f4cf-5e23-947b-6d7e65073b56"
 PortAudio = "80ea8bcb-4634-5cb3-8ee8-a132660d1d2d"
@@ -14,6 +15,7 @@ Unitful = "1986cc42-f94f-5a68-af5c-568840ba703d"
 
 [compat]
 DataStructures = "0.17, 0.18"
+InfiniteArrays = "0.12"
 Interpolations = "0.12, 0.13"
 NLsolve = "4.4"
 PortAudio = "1.1.2"
@@ -24,8 +26,6 @@ julia = "1.5"
 
 [extras]
 Documenter = "e30172f5-a6a5-5a46-863b-614d45cd2de4"
-FileIO = "5789e2e9-d7fb-5bc7-8068-2c6fae9b9549"
-LibSndFile = "b13ce0c6-77b0-50c6-a2db-140568b8d1a5"
 
 [targets]
-test = ["Documenter", "FileIO", "LibSndFile"]
+test = ["Documenter"]

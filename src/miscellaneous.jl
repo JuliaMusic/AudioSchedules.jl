@@ -34,7 +34,7 @@ get_parse(::Nothing, default) = default
 function q_str(interval_string)
     a_match = match(QUOTIENT, interval_string)
     if a_match === nothing
-        throw(Meta.ParseError("Can't parse interval $interval_string"))
+        throw(ParseError("Can't parse interval $interval_string"))
     end
     get_parse(a_match["numerator"], 1) // get_parse(a_match["denominator"], 1) *
     (2 // 1)^get_parse(a_match["octave"], 0)
