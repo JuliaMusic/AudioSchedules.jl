@@ -103,7 +103,7 @@ sample rate.
 julia> using PortAudio: PortAudioStream
 
 
-julia> PortAudioStream(0, 1, writer = Weaver()) do stream
+julia> PortAudioStream(0, 1, writer = Weaver(), warn_xruns = false) do stream
            write(stream, a_schedule)
        end
 
