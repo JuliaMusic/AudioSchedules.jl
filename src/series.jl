@@ -96,7 +96,7 @@ julia> using Unitful: s
 
 
 julia> segments(Grow, 1, 1s, ℯ)
-((Grow(1.0, 1.0 s^-1), 1 s),)
+((Grow(1.0, 1.0 s⁻¹), 1 s),)
 ```
 """
 function segments(::Type{Line}, start_level, duration, end_level)
