@@ -6,6 +6,7 @@ import Base:
     iterate,
     IteratorEltype,
     IteratorSize,
+    push!,
     show,
     size,
     wait,
@@ -17,8 +18,7 @@ using Base.Threads: nthreads
 using DataStructures: SortedSet
 using InfiniteArrays: Fill, ∞
 using Interpolations: CubicSplineInterpolation
-using NLsolve: nlsolve
-using PortAudio: Messanger, PortAudioStream, Scribe, write_buffer
+using PortAudio: Messenger, PortAudioStream, Scribe, write_buffer
 import PortAudio: get_input_type, get_output_type
 using RegularExpressions: capture, CONSTANTS, of, pattern, raw, short
 import SampledSignals: nchannels, SampleBuf, samplerate
@@ -33,15 +33,14 @@ include("series.jl")
 
 export AudioSchedule
 
-const ORCHESTRA = Vector{Tuple{Any, TIME}}
-const ACTIVATED = Vector{Bool}
-const TRIGGERS = SortedSet{Tuple{TIME, Int}}
-
 struct AudioSchedule
     sample_rate::FREQUENCY
-    orchestra::ORCHESTRA
-    activated::ACTIVATED
-    triggers::TRIGGERS
+    # instruments and the time they are first scheduled
+    orchestra::Vector{Tuple{Any, TIME}}
+    # which instruments in the orchestra are currently active
+    activated::Vector{Bool}
+    # times to turn instruments on and off
+    triggers::SortedSet{Tuple{TIME, Int}}
 end
 
 export AudioSchedule
@@ -50,7 +49,7 @@ export AudioSchedule
     AudioSchedule(; sample_rate = 44100Hz)
 
 Create an empty `AudioSchedule`.
-You can [`add!`](@ref) new synthesizers to the a_schedule.
+You can [`push!`](@ref) new synthesizers to the a_schedule.
 Specify a `sample_rate` with units per time, like `1/s` or `Hz`.
 
 ```jldoctest audio_schedule
@@ -63,7 +62,7 @@ julia> using Unitful: s, Hz
 julia> a_schedule = AudioSchedule()
 0.0 s 44100.0 Hz AudioSchedule
 
-julia> add!(
+julia> push!(
            a_schedule,
            Map(sin, Cycles(440Hz)),
            0s,
@@ -76,7 +75,7 @@ julia> add!(
            0,
        )
 
-julia> add!(
+julia> push!(
             a_schedule,
             Map(sin, Cycles(660Hz)),
             2s,
@@ -127,12 +126,19 @@ julia> PortAudioStream(0, 1, warn_xruns = false) do stream
 ```
 """
 function AudioSchedule(; sample_rate = 44100Hz)
-    AudioSchedule(sample_rate, ORCHESTRA(), ACTIVATED(), TRIGGERS())
+    AudioSchedule(
+        sample_rate,
+        Vector{Tuple{Any, TIME}}(),
+        Vector{Bool}(),
+        SortedSet{Tuple{TIME, Int}}()
+    )
 end
 
+# could potentially calculate this ahead of time
 function IteratorSize(::Type{AudioSchedule})
     SizeUnknown()
 end
+# instruments could be any type
 function IteratorEltype(::Type{AudioSchedule})
     EltypeUnknown()
 end
@@ -147,8 +153,10 @@ end
 function duration(a_schedule::AudioSchedule)
     triggers = a_schedule.triggers
     if length(triggers) > 0
+        # time from first instrument turned on to last turned off
         last(triggers)[1] - first(triggers)[1]
     else
+        # zero for an empty schedule
         0.0s
     end
 end
@@ -180,6 +188,7 @@ function second(something)
     something[2]
 end
 
+# remove last thing from a tuple
 function all_but_last(thing1, thing2, rest...)
     thing1, all_but_last(thing2, rest...)...
 end
@@ -188,43 +197,33 @@ function all_but_last(_)
     ()
 end
 
-function skip(sample_rate, wave, skip_time)
-    wave[(round(Int, skip_time * sample_rate)+1):end]
-end
-
-function make_wave(sample_rate, wave, shape, segment_start_time, segment_skip_time, duration)
-    broadcast(
+function triple(wave, shape, start_time, skip_time, duration)
+    Map(
         *,
-        # skip ahead to time in wave, then the one after
-        skip(sample_rate, wave, segment_skip_time),
-        make_series(shape, sample_rate),
+        Skip(wave, skip_time),
+        shape,
     ),
-    segment_start_time,
+    start_time + skip_time,
     duration
 end
 
-function triples(sample_rate, synthesizer, start_time, envelope...)
-    wave = make_series(synthesizer, sample_rate)
+function triples(wave, start_time, envelope...)
     shapes_durations = make_envelope(envelope...)
-    shapes = map(first, shapes_durations)
-    durations = map(second, shapes_durations)
-    segment_skip_times = all_but_last(cumsum((0.0s, durations...))...)
-    segment_start_times = start_time .+ segment_skip_times
     map(
-        let sample_rate = sample_rate, wave = wave
-            function (shape, segment_start_time, segment_skip_time, duration)
-                make_wave(sample_rate, wave, shape, segment_start_time, segment_skip_time, duration)
+        let start_time = start_time, wave = wave
+            function ((shape, duration), skip_time)
+                triple(wave, shape, start_time, skip_time, duration)
             end
         end,
-        shapes,
-        segment_start_times,
-        segment_skip_times,
-        durations,
+        shapes_durations,
+        # cumulative sum of durations, starting at 0
+        # then ignore the last one
+        all_but_last(cumsum((0.0s, map(second, shapes_durations)...))...),
     )
 end
 
 """
-    add!(a_schedule::AudioSchedule, synthesizer, start_time,
+    push!(a_schedule::AudioSchedule, synthesizer, start_time,
         start_level, shape => duration, end_level, more_segments...
     )
 
@@ -240,7 +239,7 @@ segments(shape, start_level, duration, end_level)
 `duration` should have units of time (like `s`). For example,
 
 ```
-add!(a_schedule, synthesizer, start_time, 0, Line => 1s, 1, Line => 1s, 0)
+push!(a_schedule, synthesizer, start_time, 0, Line => 1s, 1, Line => 1s, 0)
 ```
 
 will call segments twice:
@@ -250,20 +249,19 @@ segments(Line, 0, 1s, 1)
 segments(Line, 1, 1s, 0)
 ```
 """
-function add!(a_schedule::AudioSchedule, synthesizer, start_time, piece_1, rest...)
-    sample_rate = a_schedule.sample_rate
+function push!(a_schedule::AudioSchedule, synthesizer, start_time, piece_1, rest...)
     map(
         let a_schedule = a_schedule
             function ((shaped, time, duration),)
                 add_series!(a_schedule, shaped, time, duration)
             end
         end,
-        triples(sample_rate, synthesizer, start_time, piece_1, rest...),
+        triples(synthesizer, start_time, piece_1, rest...),
     )
     nothing
 end
 
-export add!
+export push!
 
 function iterate(a_schedule::AudioSchedule)
     iteration = iterate(a_schedule.triggers)
@@ -291,6 +289,7 @@ function trigger_iterate(
     (trigger_time, instrument_index),
     trigger_state,
 )
+    sample_rate = a_schedule.sample_rate
     activated = a_schedule.activated
     triggers = a_schedule.triggers
     # pull the rest of the triggers at the current time
@@ -302,27 +301,27 @@ function trigger_iterate(
         end
         (trigger_time, instrument_index), trigger_state = iteration
     end
-    # adjust these based on how long ago they went on
     active = view(a_schedule.orchestra, activated)
-    result = (
+    combined = (
         if isempty(active)
             Fill(0.0, ∞)
         else
-            broadcast(+, Iterators.map(
-                let sample_rate = a_schedule.sample_rate, schedule_time = schedule_time
-                    function ((instrument, instrument_start_time),)
-                        skip(sample_rate, instrument, schedule_time - instrument_start_time)
-                    end
-                end,
-                active
-            )...)
-        end,
-        round(Int, (trigger_time - schedule_time) * a_schedule.sample_rate),
-    ),
-    (trigger_time, trigger_state)
+            make_series(Map(
+                +,
+                Iterators.map(
+                    let schedule_time = schedule_time
+                        function ((instrument, instrument_start_time),)
+                            Skip(instrument, schedule_time - instrument_start_time)
+                        end
+                    end,
+                    active
+                )...
+            ), sample_rate)
+        end
+    )[1:round(Int, (trigger_time - schedule_time) * sample_rate)]
     # pull the next trigger
     activated[instrument_index] = !activated[instrument_index]
-    result
+    (combined, (trigger_time, trigger_state))
 end
 
 function trigger_iterate(_, __, ::Nothing)
@@ -572,7 +571,8 @@ function feed_write!(task_ios, buffer, (series_sub_ranges, buffer_sub_ranges, is
     end
 end
 
-function write_series!(task_ios, series, series_total, buffer, buffer_at)
+function write_series!(task_ios, series, buffer, buffer_at)
+    series_total = length(series)
     dual_sub_ranges =
         DualSubRanges(buffer_at, buffer.frames_per_buffer, series_total, length(task_ios))
     foreach(let series_buffers = (series, length(dual_sub_ranges))
@@ -589,30 +589,30 @@ function write_series!(task_ios, series, series_total, buffer, buffer_at)
 end
 
 function write(
-    stream::PortAudioStream{<:Messanger{<:Any,Weaver},<:Any},
+    stream::PortAudioStream{<:Messenger{<:Any,Weaver},<:Any},
     a_schedule::AudioSchedule;
     number_of_tasks = nthreads() - 1,
 )
     if number_of_tasks == 0
         throw(ArgumentError("Must write with at least 1 task"))
     end
-    if nchannels(stream.source_messanger) != 0
+    if nchannels(stream.source_messenger) != 0
         throw(ArgumentError("$stream does not have 0 input channels"))
     end
-    sink_messanger = stream.sink_messanger
-    if nchannels(sink_messanger) != 1
+    sink_messenger = stream.sink_messenger
+    if nchannels(sink_messenger) != 1
         throw(ArgumentError("$stream does not have 1 output channel"))
     end
     if samplerate(stream) != samplerate(a_schedule)
         throw(ArgumentError("Sample rates of $stream and $a_schedule do not match"))
     end
-    buffer = sink_messanger.buffer
+    buffer = sink_messenger.buffer
     buffer_at = 0
     # TODO: Move task_ios inside of the Weaver object and reuse them
     task_ios = fill_all_task_ios(buffer; number_of_tasks = number_of_tasks)
     try
-        for (series, series_total) in a_schedule
-            buffer_at = write_series!(task_ios, series, series_total, buffer, buffer_at)
+        for series in collect(a_schedule)
+            buffer_at = write_series!(task_ios, series, buffer, buffer_at)
         end
     finally
         foreach(close, task_ios)
@@ -632,20 +632,6 @@ end
 function close(task_input::TaskInput)
     close(task_input.input_channel)
     wait(task_input.task)
-end
-
-function feed!(task_inputs, series, series_total, output_at)
-    number_of_tasks = length(task_inputs)
-    series_ranges = DividedRange(1:series_total, number_of_tasks)
-    foreach(
-        let series = series
-            function feed_task_input!((task_input, series_range, output_range))
-                put!(task_input.input_channel, (series, series_range, output_range))
-            end
-        end,
-        zip(task_inputs, series_ranges, add_to(series_ranges, output_at)),
-    )
-    output_at + series_total
 end
 
 function fill_output!(output_data, (series, series_sub_range, output_range))
@@ -672,11 +658,26 @@ function fill_all_task_input(output_data)
     TaskInput(task, input_channel)
 end
 
+function feed!(task_inputs, series, output_at)
+    series_total = length(series)
+    number_of_tasks = length(task_inputs)
+    series_ranges = DividedRange(1:series_total, number_of_tasks)
+    foreach(
+        let series = series
+            function feed_task_input!((task_input, series_range, output_range))
+                put!(task_input.input_channel, (series, series_range, output_range))
+            end
+        end,
+        zip(task_inputs, series_ranges, add_to(series_ranges, output_at)),
+    )
+    output_at + series_total
+end
+
 function SampleBuf(a_schedule::AudioSchedule; number_of_tasks = nthreads() - 1)
     if number_of_tasks == 0
         throw(ArgumentError("Must write with at least 1 task"))
     end
-    number = sum(Iterators.map(second, a_schedule))
+    number = sum(Iterators.map(length, a_schedule))
     output = SampleBuf(Float64, samplerate(a_schedule), number, 1)
     task_inputs = map(let output_data = output.data
         function (_)
@@ -685,8 +686,8 @@ function SampleBuf(a_schedule::AudioSchedule; number_of_tasks = nthreads() - 1)
     end, 1:number_of_tasks)
     try
         output_at = 0
-        for (series, series_total) in a_schedule
-            output_at = feed!(task_inputs, series, series_total, output_at)
+        for series in a_schedule
+            output_at = feed!(task_inputs, series, output_at)
         end
     finally
         foreach(close, task_inputs)

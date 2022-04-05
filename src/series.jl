@@ -1,5 +1,16 @@
 const POSITIVES = 1:∞
 
+struct Skip{Synthesizer}
+    synthesizer::Synthesizer
+    time::TIME
+end
+
+function make_series(skip::Skip, sample_rate)
+    make_series(skip.synthesizer, sample_rate)[
+        (round(Int, skip.time * sample_rate)+1):end
+    ]
+end
+
 """
     Map(a_function, synthesizers...)
 
@@ -74,7 +85,7 @@ end
 """
     segments(shape, start_level, duration, end_level)
 
-Called for each envelope segment passed to [`add!`](@ref). Return a tuple of pairs in the form `(segment, duration)`,
+Called for each envelope segment passed to [`push!`](@ref). Return a tuple of pairs in the form `(segment, duration)`,
 where duration has units of time (like `s`), for a segment of shape `shape`.
 
 ```jldoctest
@@ -85,7 +96,7 @@ julia> using Unitful: s
 
 
 julia> segments(Grow, 1, 1s, ℯ)
-((Grow(1.0, 1.0 s⁻¹), 1 s),)
+((Grow(1.0, 1.0 s^-1), 1 s),)
 ```
 """
 function segments(::Type{Line}, start_level, duration, end_level)
@@ -151,64 +162,4 @@ end
 
 function segments(::Type{Grow}, start_level, duration, end_level)
     ((Grow(start_level, log(end_level / start_level) / duration), duration),)
-end
-
-"""
-    Hook(rate, slope)
-
-Make a hook shape, with an exponential curve growing at a continuous `rate` (with units per time like `1/s`), followed by a line with `slope` (with units per time like `1/s`).
-Use with [`add!`](@ref).
-Supports [`segments`](@ref). Not all hooks are solvable.
-
-```jldoctest hook
-julia> using AudioSchedules
-
-
-julia> using Unitful: Hz, s
-
-
-julia> a_schedule = AudioSchedule();
-
-
-julia> add!(a_schedule, Map(sin, Cycles(440Hz)), 0s, 1, Hook(1 / s, 1 / s) => 2s, ℯ + 1)
-
-
-julia> add!(a_schedule, Map(sin, Cycles(440Hz)), 0s, 1, Hook(1 / s, 1 / s) => 2s, 0)
-ERROR: Unsolvable hook
-[...]
-```
-"""
-struct Hook
-    rate::RATE
-    slope::RATE
-end
-export Hook
-
-function segments(hook::Hook, start_level, duration, end_level)
-    rate = hook.rate
-    slope = hook.slope
-    solved = nlsolve(
-        let start_level = start_level,
-            end_level = end_level,
-            rate = rate,
-            slope = slope,
-            duration = duration
-
-            function (residuals, arguments)
-                first_period = arguments[1]s
-                residuals[1] =
-                    end_level + slope * (first_period - duration) -
-                    start_level * exp(rate * first_period)
-                nothing
-            end
-        end,
-        [duration / 2 / s],
-        autodiff = :forward,
-    )
-    if !solved.f_converged
-        error("Unsolvable hook")
-    end
-    first_period = solved.zero[1]s
-    (Grow(start_level, rate), first_period),
-    (Line(start_level * exp(rate * first_period), slope), duration - first_period)
 end
