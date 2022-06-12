@@ -136,7 +136,7 @@ julia> push!(audio_schedule, Map(sin, Cycles(660Hz)), 2s, @envelope(
         ))
 
 julia> audio_schedule
-4.0 s^2 44100.0 Hz AudioSchedule
+4.0 s 44100.0 Hz AudioSchedule
 ```
 
 You can iterate over an `AudioSchedule`. Each element will just be a vector
@@ -165,17 +165,13 @@ julia> PortAudioStream(0, 1, warn_xruns = false) do stream
 julia> PortAudioStream(0, 2) do stream
             write(stream, audio_schedule)
         end
-ERROR: ArgumentError: PortAudioStream{Float32}
-  Samplerate: 44100.0Hz
-  2 channel sink: "default" does not have 1 output channel
+ERROR: ArgumentError: PortAudioStream does not have 1 output channel
 [...]
 
 julia> PortAudioStream(0, 1, samplerate = 48000) do stream
             write(stream, audio_schedule)
         end
-ERROR: ArgumentError: Sample rates of PortAudioStream{Float32}
-  Samplerate: 48000.0Hz
-  1 channel sink: "default" and 4.0 s^2 44100.0 Hz AudioSchedule do not match
+ERROR: ArgumentError: Sample rates of PortAudioStream (48000.0) and AudioSchedule (44100.0) do not match
 [...]
 ```
 
@@ -251,14 +247,14 @@ julia> push!(audio_schedule, Map(sin, Cycles(440Hz)), 0s, @envelope(
         ))
 
 julia> duration(audio_schedule)
-2.0 s^2
+2.0 s
 ```
 """
 function duration(audio_schedule::AudioSchedule)
     triggers = audio_schedule.triggers
     if length(triggers) > 0
         # time from first instrument turned on to last turned off
-        (last(triggers)[1] - first(triggers)[1])s
+        last(triggers)[1] - first(triggers)[1]
     else
         # zero for an empty schedule
         0.0s
@@ -320,7 +316,7 @@ For example, `@envelope(0, Line => 1s, 1, Line => 1s, 0)` will create an envelop
 julia> using AudioSchedules
 
 julia> @envelope(0, Line => 1s, 1, Line => 1s, 0)
-(Line(0.0, 1.0 s^-1) => 1.0 s, Line(1.0, -1.0 s^-1) => 1.0 s)
+(Line(0.0, 1.0 s⁻¹) => 1.0 s, Line(1.0, -1.0 s⁻¹) => 1.0 s)
 
 julia> @envelope(1, 2, 3)
 ERROR: LoadError: ArgumentError: 2 is not a pair
@@ -419,7 +415,8 @@ function trigger_iterate(
     activated = audio_schedule.activated
     triggers = audio_schedule.triggers
     # pull the rest of the triggers at the current time
-    while schedule_time == trigger_time
+    # that is, all triggers less than 1 sample away
+    while trigger_time - schedule_time < 1 / sample_rate
         activated[instrument_index] = !activated[instrument_index]
         iteration = iterate(triggers, trigger_state)
         if iteration === nothing
@@ -488,10 +485,10 @@ function write(
 )
     sink_messenger = stream.sink_messenger
     if nchannels(sink_messenger) != 1
-        throw(ArgumentError("$stream does not have 1 output channel"))
+        throw(ArgumentError("PortAudioStream does not have 1 output channel"))
     end
     if samplerate(stream) != samplerate(audio_schedule)
-        throw(ArgumentError("Sample rates of $stream and $audio_schedule do not match"))
+        throw(ArgumentError("Sample rates of PortAudioStream ($(samplerate(stream))) and AudioSchedule ($(samplerate(audio_schedule))) do not match"))
     end
     buffer = sink_messenger.buffer
     buffer_at = 0
