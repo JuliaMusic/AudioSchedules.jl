@@ -15,10 +15,10 @@ Unitful = "1986cc42-f94f-5a68-af5c-568840ba703d"
 DataStructures = "0.17, 0.18"
 InfiniteArrays = "0.12"
 MacroTools = "0.5"
-PortAudio = "1.2"
+PortAudio = "1.3"
 SampledSignals = "2.1"
 Unitful = "0.17,1.4"
-julia = "1.5"
+julia = "1.6"
 
 [extras]
 Documenter = "e30172f5-a6a5-5a46-863b-614d45cd2de4"

@@ -2,7 +2,7 @@ const POSITIVES = 1:∞
 
 struct Skip{Synthesizer}
     synthesizer::Synthesizer
-    time::FLOAT_SECONDS
+    time::typeof(0.0s)
 end
 
 function make_series(skip::Skip, sample_rate)
@@ -69,7 +69,7 @@ julia> first(make_series(Line(0, 1s, 1), 44100Hz))
 """
 struct Line
     start_level::Float64
-    slope::FLOAT_PER_SECOND
+    slope:: typeof(1.0 / s)
 end
 export Line
 
@@ -77,13 +77,13 @@ function make_series(line::Line, sample_rate)
     line.start_level .+ (line.slope / sample_rate) .* POSITIVES
 end
 
-precompile(make_series, (Line, FLOAT_HERTZ))
+precompile(make_series, (Line, typeof(1.0Hz)))
 
 function Line(start_level, duration, end_level)
     Line(start_level, (end_level - start_level) / duration)
 end
 
-precompile(Line, (Float64, FLOAT_SECONDS, Float64))
+precompile(Line, (Float64, typeof(0.0s), Float64))
 
 const τ = 2 * π
 
@@ -106,7 +106,7 @@ julia> first(make_series(Cycles(440Hz), 44100Hz))
 ```
 """
 struct Cycles
-    frequency::FLOAT_HERTZ
+    frequency::typeof(1.0Hz)
 end
 export Cycles
 
@@ -114,7 +114,7 @@ function make_series(cycles::Cycles, sample_rate)
     ((cycles.frequency / sample_rate * τ) .* POSITIVES) .% τ
 end
 
-precompile(make_series, (Cycles, FLOAT_HERTZ))
+precompile(make_series, (Cycles, typeof(1.0Hz)))
 
 """
     Grow(start_level, duration, end_level)
@@ -135,7 +135,7 @@ julia> first(make_series(Grow(0.1, 1s, 1), 44100Hz))
 """
 struct Grow
     start_level::Float64
-    rate::FLOAT_PER_SECOND
+    rate:: typeof(1.0 / s)
 end
 export Grow
 
@@ -143,10 +143,10 @@ function make_series(grow::Grow, sample_rate)
     grow.start_level .* exp(grow.rate / sample_rate) .^ POSITIVES
 end
 
-precompile(make_series, (Grow, FLOAT_HERTZ))
+precompile(make_series, (Grow, typeof(1.0Hz)))
 
 function Grow(start_level, duration, end_level)
     Grow(start_level, log(end_level / start_level) / duration)
 end
 
-precompile(Grow, (Float64, FLOAT_SECONDS, Float64))
+precompile(Grow, (Float64, typeof(0.0s), Float64))

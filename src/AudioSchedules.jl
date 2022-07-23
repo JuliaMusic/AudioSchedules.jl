@@ -11,6 +11,7 @@ import Base:
     write
 using Base: EltypeUnknown, SizeUnknown
 using Base.FastMath: sin_fast
+using Base.Threads: Atomic
 using DataStructures: SAIterationState, SortedSet
 using InfiniteArrays: Fill, ∞
 using MacroTools: @capture
@@ -20,9 +21,9 @@ using Unitful: dB, Hz, s, ustrip
 
 export Hz, s
 
-const FLOAT_HERTZ = typeof(1.0Hz)
-const FLOAT_PER_SECOND = typeof(1.0 / s)
-const FLOAT_SECONDS = typeof(0.0s)
+const DEFAULT_STREAM_TYPE = PortAudioStream() do stream
+    typeof(stream)
+end
 
 include("series.jl")
 
@@ -49,60 +50,17 @@ precompile(Scale{Float64}, (Float64,))
 
 export Scale
 
-# TODO: use FFT here?
-struct SawTooth{overtones} end
-
-"""
-    SawTooth(overtones)
-
-Build a saw-tooth wave from its partials, starting with the fundamental (1), up to
-`overtones`.
-
-To increase richness but also buziness, increase `overtones`.
-
-```jldoctest
-julia> using AudioSchedules
-
-
-julia> SawTooth(3)(π / 4)
-0.9185207636218614
-```
-"""
-SawTooth(overtones) = SawTooth{overtones}()
-
-export SawTooth
-
-const ADJUST = 2 / pi
-
-function (saw::SawTooth{overtones})(an_angle) where {overtones}
-    ADJUST * sum(ntuple(let an_angle = an_angle
-        function (overtone)
-            sin_fast(overtone * an_angle) / overtone
-        end
-    end, Val{overtones}()))
-end
-
-precompile(SawTooth{1}, (Float64,))
-precompile(SawTooth{2}, (Float64,))
-precompile(SawTooth{3}, (Float64,))
-precompile(SawTooth{4}, (Float64,))
-precompile(SawTooth{5}, (Float64,))
-precompile(SawTooth{6}, (Float64,))
-precompile(SawTooth{7}, (Float64,))
-precompile(SawTooth{8}, (Float64,))
-precompile(SawTooth{9}, (Float64,))
-precompile(SawTooth{10}, (Float64,))
-
 export AudioSchedule
 
 struct AudioSchedule
-    sample_rate::FLOAT_HERTZ
+    sample_rate::typeof(1.0Hz)
     # instruments and the time they are first scheduled
-    orchestra::Vector{Tuple{Any, FLOAT_SECONDS}}
+    orchestra::Vector{Tuple{Any, typeof(0.0s)}}
     # which instruments in the orchestra are currently active
     activated::Vector{Bool}
-    # times to turn instruments on and off
-    triggers::SortedSet{Tuple{FLOAT_SECONDS, Int}}
+    # times to turn instruments is_on and off
+    triggers::SortedSet{Tuple{typeof(0.0s), Int}}
+    is_on::Atomic{Bool}
 end
 
 """
@@ -146,6 +104,9 @@ of amplitudes.
 julia> length(first(audio_schedule))
 44100
 
+julia> length(collect(audio_schedule))
+4
+
 julia> collect(AudioSchedule())
 Any[]
 ```
@@ -175,6 +136,23 @@ ERROR: ArgumentError: Sample rates of PortAudioStream (48000.0) and AudioSchedul
 [...]
 ```
 
+You can turn an `AudioSchedule` off in real time by setting `is_on[] = false`, for
+example,
+
+```jldoctest audio_schedule
+julia> using Base.Threads: @spawn
+
+julia> using PortAudio: PortAudioStream
+
+julia> @sync begin
+            @spawn PortAudioStream(0, 1, warn_xruns = false) do stream
+                write(stream, audio_schedule)
+            end
+            sleep(2)
+            audio_schedule.is_on[] = false
+        end;
+```
+
 You can save an `AudioSchedule` as a `SampledSignals.SampleBuf`.
 
 ```jldoctest audio_schedule
@@ -197,19 +175,25 @@ julia> audio_schedule
 ```
 """
 function AudioSchedule(;
-    sample_rate = 44100Hz,
-    orchestra = Tuple{Any, FLOAT_SECONDS}[],
+    sample_rate = 44100.0Hz,
+    orchestra = Tuple{Any, typeof(0.0s)}[],
     activated = Bool[],
-    triggers = SortedSet{Tuple{FLOAT_SECONDS, Int}}()
+    triggers = SortedSet{Tuple{typeof(0.0s), Int}}(),
+    is_on = Atomic{Bool}(true)
 
 )
-    AudioSchedule(sample_rate, orchestra, activated, triggers)
+    AudioSchedule(sample_rate, orchestra, activated, triggers, is_on)
 end
 
 precompile(AudioSchedule, ())
 
 IteratorEltype(::Type{AudioSchedule}) = EltypeUnknown()
+
+precompile(IteratorEltype, (Type{AudioSchedule},))
+
 IteratorSize(::Type{AudioSchedule}) = SizeUnknown()
+
+precompile(IteratorSize, (Type{AudioSchedule},))
 
 function empty!(audio_schedule::AudioSchedule)
     empty!(audio_schedule.orchestra)
@@ -224,9 +208,13 @@ function samplerate(audio_schedule::AudioSchedule)
     ustrip(Hz, audio_schedule.sample_rate)
 end
 
+precompile(samplerate, (AudioSchedule,))
+
 function nchannels(audio_schedule::AudioSchedule)
     1
 end
+
+precompile(nchannels, (AudioSchedule,))
 
 """
     duration(audio_schedule::AudioSchedule)
@@ -253,7 +241,7 @@ julia> duration(audio_schedule)
 function duration(audio_schedule::AudioSchedule)
     triggers = audio_schedule.triggers
     if length(triggers) > 0
-        # time from first instrument turned on to last turned off
+        # time from first instrument turned is_on to last turned off
         last(triggers)[1] - first(triggers)[1]
     else
         # zero for an empty schedule
@@ -265,7 +253,12 @@ precompile(duration, (AudioSchedule,))
 export duration
 
 function show(io::IO, audio_schedule::AudioSchedule)
-    print(io, "$(duration(audio_schedule)) $(audio_schedule.sample_rate) AudioSchedule")
+    the_duration = duration(audio_schedule)
+    show(io, round(typeof(the_duration), the_duration, digits = 3))
+    print(io, " ")
+    sample_rate = audio_schedule.sample_rate
+    show(io, round(typeof(sample_rate), sample_rate, digits = 3))
+    print(io, " AudioSchedule")
 end
 
 function envelope_macro_pieces(start_level_expression, pair_expression, end_level_expression, the_rest...)
@@ -402,8 +395,7 @@ function iterate(audio_schedule::AudioSchedule, (schedule_time, trigger_state))
     end
 end
 
-
-precompile(iterate, (AudioSchedule, Tuple{FLOAT_SECONDS, SAIterationState}))
+precompile(iterate, (AudioSchedule, Tuple{typeof(0.0s), SAIterationState}))
 
 function trigger_iterate(
     audio_schedule,
@@ -417,14 +409,14 @@ function trigger_iterate(
     # pull the rest of the triggers at the current time
     # that is, all triggers less than 1 sample away
     while trigger_time - schedule_time < 1 / sample_rate
-        activated[instrument_index] = !activated[instrument_index]
+        @inbounds activated[instrument_index] = !activated[instrument_index]
         iteration = iterate(triggers, trigger_state)
         if iteration === nothing
             return nothing
         end
         (trigger_time, instrument_index), trigger_state = iteration
     end
-    active = view(audio_schedule.orchestra, activated)
+    active = @inbounds view(audio_schedule.orchestra, activated)
     combined = view((
         if isempty(active)
             Fill(0.0, ∞)
@@ -443,41 +435,74 @@ function trigger_iterate(
         end
     ), 1:round(Int, (trigger_time - schedule_time) * sample_rate))
     # pull the next trigger
-    activated[instrument_index] = !activated[instrument_index]
+    @inbounds activated[instrument_index] = !activated[instrument_index]
     (combined, (trigger_time, trigger_state))
 end
 
-function write_series!(buffer, series, buffer_at)
+precompile(trigger_iterate, (AudioSchedule, typeof(0.0s), SAIterationState, Tuple{typeof(0.0s), Int}, SAIterationState))
+
+@noinline function write_series!(buffer, series, buffer_at, is_on)
     buffer_data = buffer.data
     series_at = 0
     series_length = length(series)
     frames_per_buffer = buffer.frames_per_buffer
     left_in_buffer = frames_per_buffer - buffer_at
-    if series_length >= left_in_buffer
-        buffer_data[:, (buffer_at + 1):frames_per_buffer] .= 
+    while (series_length - series_at) >= left_in_buffer
+        @inbounds buffer_data[:, (buffer_at + 1):frames_per_buffer] .= 
             transpose(view(series, (series_at + 1):(series_at + left_in_buffer)))
-        write_buffer(buffer)
-        buffer_at = 0
+        write_buffer(buffer; acquire_lock = false)
         series_at = series_at + left_in_buffer
-        while (series_length - series_at) >= frames_per_buffer
-            buffer_data .= 
-                transpose(view(series, (series_at + 1):(series_at + frames_per_buffer)))
-            write_buffer(buffer)
-            buffer_at = 0
-            series_at = series_at + frames_per_buffer
+        buffer_at = 0
+        left_in_buffer = frames_per_buffer - buffer_at
+        if !(is_on[])
+            return buffer_at, false
         end
-        number_left = series_length - series_at
-        if series_length - series_at > 0
-            buffer_data[:, (buffer_at + 1):number_left] .=
-                transpose(view(series, (series_at + 1):series_length))
-        end
-        number_left
-    else
-        last_buffer_at = buffer_at + series_length
-        buffer_data[:, (buffer_at + 1):last_buffer_at] .= transpose(series)
-        last_buffer_at
     end
+    last_buffer_at = buffer_at + series_length - series_at
+    @inbounds buffer_data[:, (buffer_at + 1):last_buffer_at] .= 
+        transpose(view(series, (series_at + 1):series_length))
+    buffer_at = last_buffer_at
+    buffer_at, true
 end
+
+"""
+    compile(stream::PortAudioStream, audio_schedule::AudioSchedule)
+
+Compile an AudioSchedule by only writing the first sample from each segment to
+the stream buffer.
+
+```jldoctest
+julia> using AudioSchedules
+
+julia> audio_schedule = AudioSchedule();
+
+julia> push!(audio_schedule, Map(sin, Cycles(440Hz)), 0s, @envelope(
+            0,
+            Line => 1s,
+            1,
+            Line => 1s,
+            0,
+        ));
+
+julia> using PortAudio: PortAudioStream
+
+julia> PortAudioStream(0, 1) do stream
+            compile(stream, audio_schedule)
+        end
+```
+"""
+function compile(stream::PortAudioStream, audio_schedule::AudioSchedule)
+    buffer = stream.sink_messenger.buffer
+    is_on = audio_schedule.is_on
+    for series in audio_schedule
+        write_series!(buffer, view(series, 1:1), 0, is_on)
+    end
+    nothing
+end
+
+precompile(compile, (DEFAULT_STREAM_TYPE, AudioSchedule))
+
+export compile
 
 function write(
     stream::PortAudioStream,
@@ -490,18 +515,23 @@ function write(
     if samplerate(stream) != samplerate(audio_schedule)
         throw(ArgumentError("Sample rates of PortAudioStream ($(samplerate(stream))) and AudioSchedule ($(samplerate(audio_schedule))) do not match"))
     end
+    is_on = audio_schedule.is_on
     buffer = sink_messenger.buffer
     buffer_at = 0
+    is_on_value = is_on[]
     for series in audio_schedule
-        buffer_at = write_series!(buffer, series, buffer_at)
+        if !is_on_value
+            break
+        end
+        buffer_at, is_on_value = write_series!(buffer, series, buffer_at, is_on)
     end
     if buffer_at > 0
-        write_buffer(buffer, buffer_at)
+        write_buffer(buffer, buffer_at; acquire_lock = false)
     end
     nothing
 end
 
-precompile(write, (PortAudioStream, AudioSchedule))
+precompile(write, (DEFAULT_STREAM_TYPE, AudioSchedule))
 
 function SampleBuf(audio_schedule::AudioSchedule)
     SampleBuf(
