@@ -15,15 +15,18 @@ using Base.Threads: Atomic
 using DataStructures: SAIterationState, SortedSet
 using InfiniteArrays: Fill, ∞
 using MacroTools: @capture
-using PortAudio: PortAudioStream, write_buffer
+using PortAudio:
+    Messenger,
+    PortAudioStream,
+    SampledSignalsReader,
+    SampledSignalsWriter,
+    write_buffer
 import SampledSignals: nchannels, SampleBuf, samplerate
 using Unitful: dB, Hz, s, ustrip
 
 export Hz, s
 
-const DEFAULT_STREAM_TYPE = PortAudioStream() do stream
-    typeof(stream)
-end
+const DEFAULT_STREAM_TYPE = PortAudioStream{Messenger{Float32, SampledSignalsWriter, Tuple{Matrix{Float32}, Int, Int}, Int}, Messenger{Float32, SampledSignalsReader, Tuple{Matrix{Float32}, Int, Int}, Int}}
 
 include("series.jl")
 
